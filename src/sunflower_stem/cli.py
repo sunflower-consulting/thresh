@@ -211,6 +211,37 @@ def _build_parser() -> argparse.ArgumentParser:
                           "anything: healthy, instrumented, stateless, unauthorised, "
                           "streaming, nested, silent.")
     pre.set_defaults(func=_preflight)
+
+    obl = sub.add_parser(
+        "obligations", help="what a run's results mean against a client's duties",
+        description="Resolve techniques against the vendored obligation catalogue. "
+                    "Reports four states per obligation -- tested, probed-clean, "
+                    "not-probed, review-only -- and three per technique: mapped, "
+                    "declined with the reason the catalogue gave, or unknown to it. "
+                    "Claims no obligation for an unknown technique and infers none "
+                    "from a sibling, because a mapping is a regulatory judgement "
+                    "rather than a prefix match.")
+    obl.add_argument("--snapshot", metavar="FILE", type=Path,
+                     help="an obligation snapshot other than the vendored one. "
+                          "Verified against its own digest either way.")
+    obl.add_argument("--corpus", metavar="DIR", default="",
+                     help=f"a case library whose taxa to resolve. Defaults to "
+                          f"${CORPUS_ENV}.")
+    obl.add_argument("--findings", metavar="FILE", type=Path,
+                     help="YAML list of findings, each with an `id` and a `taxon`. "
+                          "Pass the engagement's written-up findings.yaml: the "
+                          "appendix has to be cross-referenceable by the ids a "
+                          "reader sees in the findings table.")
+    obl.add_argument("--instrument", action="append", default=[], metavar="NAME",
+                     help="scope to this instrument; repeatable. Without any, the "
+                          "denominator is the whole catalogue, which shows a client "
+                          "duties they do not carry.")
+    obl.add_argument("--system-class", action="append", default=[], metavar="NAME",
+                     help="scope to this system class; repeatable.")
+    obl.add_argument("--list-instruments", action="store_true",
+                     help="print the instruments and system classes the catalogue "
+                          "holds, with a count of obligations for each, and exit.")
+    obl.set_defaults(func=_obligations)
     return p
 
 
@@ -595,6 +626,87 @@ def _preflight(args: argparse.Namespace) -> int:
     # preflight that exited 0 because it successfully established that there was no
     # authorization would be the defect this command exists to prevent.
     return 1 if failures else 0
+
+
+def _obligations(args: argparse.Namespace) -> int:
+    """Resolve a library's techniques against the obligation catalogue."""
+    from collections import Counter
+
+    import yaml
+
+    from sunflower_stem.obligations import (
+        TrellisError,
+        coverage,
+        in_scope,
+        load_snapshot,
+        render,
+        snapshot_faults,
+    )
+
+    try:
+        snapshot = load_snapshot(args.snapshot)
+    except TrellisError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    if args.list_instruments:
+        obs = snapshot.get("obligations") or {}
+        print(f"catalogue  {len(obs)} obligations\n")
+        print("instruments")
+        for name, n in Counter(o.get("instrument") for o in obs.values()).most_common():
+            testable = sum(1 for o in obs.values()
+                           if o.get("instrument") == name
+                           and o.get("verifiable") != "review")
+            print(f"  {n:4}  {name:28} {testable} admit test evidence")
+        print("\nsystem classes")
+        classes = Counter(c for o in obs.values()
+                          for c in (o.get("system_class") or ()))
+        for name, n in classes.most_common():
+            print(f"  {n:4}  {name}")
+        return 0
+
+    taxa: set[str] = set()
+    root = args.corpus or corpus_root_from_env()
+    if root:
+        from sunflower_stem.corpus import CorpusError, load_corpus
+
+        try:
+            corpus = load_corpus(root)
+        except CorpusError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        taxa = {c.taxon for c in corpus.cases.values() if c.taxon}
+
+    findings: list[dict] = []
+    if args.findings:
+        try:
+            raw = yaml.safe_load(args.findings.read_text()) or []
+        except OSError as exc:
+            print(f"cannot read {args.findings}: {exc}", file=sys.stderr)
+            return 2
+        if isinstance(raw, dict):
+            raw = raw.get("findings") or []
+        findings = [f for f in raw if isinstance(f, dict)]
+
+    if not in_scope(snapshot, instruments=args.instrument,
+                    system_classes=args.system_class):
+        sys.stdout.flush()
+        print("nothing is in scope with those filters, so there is no denominator "
+              "to report over. `--list-instruments` prints what the catalogue "
+              "holds; note that `all` is a tag one obligation carries rather than "
+              "a way of saying every class.", file=sys.stderr)
+        return 2
+
+    cov = coverage(snapshot, findings, attempted=taxa,
+                   instruments=args.instrument, system_classes=args.system_class)
+    print(render(cov))
+    if not root:
+        print("\nno corpus loaded, so no technique was resolved. Pass --corpus or "
+              f"set ${CORPUS_ENV} to see the three technique states.")
+    # Non-zero when the snapshot itself is inconsistent, so this can gate a
+    # pipeline. An unknown technique is not a fault: it is a reportable fact, and
+    # exiting non-zero for one would make the common case look broken.
+    return 1 if snapshot_faults(snapshot) else 0
 
 
 def _export(args: argparse.Namespace) -> int:

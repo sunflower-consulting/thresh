@@ -12,3 +12,22 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+VENDORED DATA
+
+This package includes `src/sunflower_stem/trellis/snapshot.yaml`, a verbatim copy
+of the obligation catalogue, crosswalk, technique vocabulary, classification rules
+and calendar published by the trellis project. That file is licensed under CC BY
+4.0 rather than under the Apache License above; see LICENSE-DATA.
+
+  Attribution: Sunflower Consulting, https://github.com/sunflower-consulting/trellis
+
+The technique vocabulary in it is derived from the OWASP Top 10 for Large Language
+Model Applications and the structure of OWASP's GenAI security material. OWASP is a
+registered trademark of the OWASP Foundation, Inc. Sunflower Consulting is not
+affiliated with or endorsed by the OWASP Foundation.
+
+  https://genai.owasp.org/
+
+Regulatory texts are not reproduced. Each obligation record links to the official
+source it was read from.

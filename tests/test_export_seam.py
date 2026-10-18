@@ -249,3 +249,94 @@ def test_every_field_emitted_is_one_the_consumer_allows(tmp_path):
     for key in schema["required"]:
         assert key in doc, f"required by the consumer and absent: {key}"
     assert set(CASE_FIELDS) <= allowed
+
+
+# --- the second machine file, which arrived with the obligation lookup -----------
+
+def _mapping(run_id="r", **over) -> dict:
+    """A control mapping shaped like `obligations.coverage()`'s output."""
+    doc = {"run_id": run_id, "trellis_version": "sha256:abcdef0123456789",
+           "trellis_sha256": "abcdef", "scope": {"instruments": ["x"],
+                                                 "system_classes": []},
+           "counts": {"tested": 1, "review-only": 1},
+           "testable_total": 1, "testable_with_evidence": 1, "review_only_total": 1,
+           "obligations": [
+               {"obligation": "x:Art.1", "instrument": "x", "citation": "Art.1",
+                "verifiable": "test", "status": "tested", "findings": ["F-1"]},
+               {"obligation": "x:Art.2", "instrument": "x", "citation": "Art.2",
+                "verifiable": "review", "status": "review-only",
+                "evidence_expected": "a policy"}],
+           "taxa": {"counts": {"mapped": 1, "declined": 0, "unknown": 1},
+                    "techniques": [
+                        {"taxon": "fam-mapped", "state": "mapped",
+                         "obligations": ["x:Art.1"]},
+                        {"taxon": "fam-new", "state": "unknown",
+                         "note": "never crosswalked", "family": "fam",
+                         "family_crosswalked": ["fam-mapped"]}]}}
+    doc.update(over)
+    return doc
+
+
+def test_a_run_writes_the_control_mapping_with_its_own_run_id(tmp_path):
+    """The consuming schema requires `run_id` at the top level and the engine this
+    was ported from never emitted it, so every control mapping it wrote would have
+    failed validation on a required key. The run's id wins over whatever the mapping
+    document happened to carry."""
+    from sunflower_stem.export import CONTROL_MAPPING
+
+    bundle = _bundle(tmp_path, "2026-10-18T09-00-00_run-a", quotable=True,
+                     findings=[_finding()])
+    manifest, findings = runbundle.load(bundle)
+    eng = tmp_path / "engagement"
+    eng.mkdir()
+    out = write_run(eng, manifest, findings,
+                    control_mapping=_mapping(run_id="something-else"))
+    doc = yaml.safe_load((out / CONTROL_MAPPING).read_text())
+    assert doc["run_id"] == manifest["run_id"]
+    assert [r["status"] for r in doc["obligations"]] == ["tested", "review-only"]
+    assert doc["taxa"]["counts"]["unknown"] == 1
+
+
+def test_a_run_with_no_obligation_lookup_writes_no_control_mapping(tmp_path):
+    """An engagement that was never scoped against an obligation catalogue has no
+    control mapping, which is a fact about the engagement rather than a failure."""
+    from sunflower_stem.export import CONTROL_MAPPING
+
+    bundle = _bundle(tmp_path, "2026-10-18T09-00-00_run-a", quotable=True,
+                     findings=[_finding()])
+    manifest, findings = runbundle.load(bundle)
+    eng = tmp_path / "engagement"
+    eng.mkdir()
+    out = write_run(eng, manifest, findings)
+    assert not (out / CONTROL_MAPPING).exists()
+    assert (out / "measurements.yaml").is_file(), "the first file still arrives"
+
+
+def test_the_control_mapping_is_consolidated_from_one_run_entire(tmp_path):
+    """Chosen differently from the measurements, deliberately. A measurement is per
+    case so the newest quotable run wins per case; a control mapping's rows interlock
+    -- `probed-clean` here and `not-probed` there are two statements about the same
+    selection -- so stitching them from two runs would describe a page no run ever
+    measured."""
+    from sunflower_stem.export import CONTROL_MAPPING
+
+    eng = tmp_path / "engagement"
+    eng.mkdir()
+    for rid, status in (("2026-10-18T09-00-00_old", "not-probed"),
+                        ("2026-10-18T10-00-00_new", "tested")):
+        bundle = _bundle(tmp_path, rid, quotable=True, findings=[_finding()])
+        manifest, findings = runbundle.load(bundle)
+        mapping = _mapping()
+        mapping["obligations"][0]["status"] = status
+        if status == "not-probed":
+            mapping["obligations"][0].pop("findings", None)
+            mapping["obligations"][0]["reason"] = "nothing bearing on it ran"
+        write_run(eng, manifest, findings, control_mapping=mapping)
+
+    _out, notes = consolidate(eng)
+    doc = yaml.safe_load((eng / CONTROL_MAPPING).read_text())
+    assert doc["run_id"].endswith("_new")
+    assert doc["obligations"][0]["status"] == "tested", (
+        "the newer run wins entire, rather than per obligation")
+    assert any("superseded" in n for n in notes), (
+        "and the earlier one is in the notes rather than merged")

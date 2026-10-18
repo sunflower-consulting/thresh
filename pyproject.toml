@@ -5,7 +5,7 @@ description = "Measure whether an attack on an LLM application actually worked, 
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
-license-files = ["LICENSE", "NOTICE"]
+license-files = ["LICENSE", "LICENSE-DATA", "NOTICE"]
 authors = [{ name = "Sunflower Consulting" }]
 keywords = ["llm", "security", "red-team", "prompt-injection", "evaluation"]
 classifiers = [
@@ -50,7 +50,7 @@ where = ["src"]
 # built wheel on a clean machine, which is what makes this assertable rather than
 # assumed.
 [tool.setuptools.package-data]
-sunflower_stem = ["rubrics/*.yaml"]
+sunflower_stem = ["rubrics/*.yaml", "trellis/*.yaml"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

@@ -107,6 +107,7 @@ stem lab          serve the bundled vulnerable application on loopback
 stem doctor       report what this installation can and cannot prove
 stem corpus       load an external case library and report what is reachable
 stem preflight    check one engagement before it spends a message budget
+stem obligations  what a run's results mean against a client's duties
 stem judge        report the judge rung's configuration and its rubric library
 stem calibrate    check whether each judge rubric's threshold is calibrated
 stem export       write one run's measurements where a document generator reads them
@@ -124,6 +125,19 @@ Adding a refusal to the gate makes this command fail until it says what it will 
 
 It sends exactly one thing: an ordinary question, last, and only once everything answerable offline has passed. A scope check that fails stops the command before anything leaves the machine, because a preflight that probes a host the scope does not cover - even to find out whether it answers - is the one thing it must never do. `--mock` rehearses the whole path against a fake target, which is how an operator can see what "auth rejected" looks like before it happens in front of a client.
 `stem calibrate` needs no endpoint and no GPU to be useful. With nothing configured it runs a dry pass against three constant judges - one that always says yes, one that always says no, and one that answers the question while leaving the number out - and the read-out has to report each of those as a different fault. That is the inverse of the usual success condition, and it is the point: a detector that cannot tell a judge that disagreed from one that never answered will send you to tune the wrong thing, and a live run cannot reveal that because a live run has no ground truth.
+
+`stem obligations` reports two axes that look like one and are not.
+Per obligation there are four states, and the pair that has to stay apart is `probed-clean` and `not-probed`: a client reading "no findings against Article 15(5)" when every case bearing on it was skipped for want of a seeding sink has been told something false by omission.
+Per technique there are three, and the third is the one that did not exist: the catalogue either crosswalks a technique, or declines it for a written reason, or has never heard of it.
+
+Returning nothing for the last two alike is how a run's most differentiating output disappears from an appendix without anyone noticing it is missing.
+Measured against the bundled catalogue and a 244-case library: 82 techniques are mapped, 0 are declined, and 48 are unknown - roughly a fifth of a full run.
+All 48 are variants inside a family the catalogue already crosswalks, so inheriting a family's obligations would be one line of code; that line would have this tool inventing a regulatory judgement, which is the thing the catalogue's eight written declines exist to say you must not do.
+It names the neighbouring family so a human can decide, and claims nothing.
+
+The obligation catalogue is vendored rather than fetched, because a report must be rebuildable later from its own bundle.
+It is CC BY 4.0 rather than Apache-2.0; see LICENSE-DATA.
+The copy is verbatim and that is checkable rather than asserted: the file carries a digest over a canonical serialisation of its content, every load recomputes and verifies it, and a test pins the whole file's sha256 against the copy the report renderer holds.
 
 `stem lab` exposes no `--host`. It is an application built to be exploitable, and a host option is how one ends up answering on a laptop's wifi address. Forwarding a port is still possible and is then a decision with a person attached to it.
 
