@@ -360,8 +360,27 @@ def test_the_vendored_file_is_the_sha_this_package_recorded():
 @pytest.mark.skipif(not DOC_ENGINE.is_file(),
                     reason="the report renderer is a separate repository")
 def test_the_renderer_holds_the_same_bytes():
-    """Otherwise a report cites obligation text its own appendix does not contain."""
-    assert hashlib.sha256(DOC_ENGINE.read_bytes()).hexdigest() == SNAPSHOT_SHA256
+    """Otherwise a report cites obligation text its own appendix does not contain.
+
+    This failing is not a defect in THIS package. It means the two vendored copies
+    have diverged, which happens for one release window every time the catalogue is
+    regenerated: this side takes the new file and the renderer has not yet. The
+    message says what to do, because a cross-repository failure with no instruction
+    gets worked around.
+
+    It runs only for somebody with both checkouts. CI deliberately does not check
+    the renderer out -- see the note in .github/workflows/ci.yml -- because a green
+    build here must not be hostage to another repository's release state.
+    """
+    theirs = hashlib.sha256(DOC_ENGINE.read_bytes()).hexdigest()
+    assert theirs == SNAPSHOT_SHA256, (
+        f"the renderer's copy of the catalogue is not this one.\n"
+        f"  here:     {SNAPSHOT_SHA256[:16]}  (src/sunflower_thresh/almanac/)\n"
+        f"  renderer: {theirs[:16]}  ({DOC_ENGINE})\n"
+        f"Re-vendor it:\n"
+        f"  cp src/sunflower_thresh/almanac/snapshot.yaml {DOC_ENGINE}\n"
+        f"A report built from the renderer's copy would cite different obligation "
+        f"text than this package resolved against, and nothing else would notice.")
 
 
 def test_the_licence_for_the_vendored_data_is_published():

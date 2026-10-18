@@ -232,4 +232,10 @@ def test_the_renderer_declares_every_revision_key_the_mapping_emits(chain):
     doc = _yaml(chain["engagement"] / CONTROL_MAPPING)
     emitted = {k for k in doc if "version" in k or "sha256" in k}
     assert emitted, "the mapping has to say what it resolved against"
-    assert emitted <= declared, f"{emitted - declared} is not declared by the renderer"
+    assert emitted <= declared, (
+        f"{sorted(emitted - declared)} is emitted here and not declared by the "
+        f"renderer's control-mapping schema. Its additionalProperties is true, so "
+        f"an undeclared key is IGNORED rather than refused -- the report would "
+        f"silently stop citing the dataset revision it resolved against. Add the "
+        f"key there (the catalogue was renamed from trellis to almanac, and both "
+        f"spellings are emitted here while the renderer catches up).")

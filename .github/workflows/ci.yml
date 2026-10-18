@@ -25,43 +25,32 @@ jobs:
         python: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
-        with:
-          path: thresh
-      # The report renderer, checked out as a SIBLING so the cross-repository
-      # contract tests actually run here rather than only on a developer's
-      # machine. They assert that the measurement and control-mapping files a
-      # real run produces are what that repository's own schemas permit, and
-      # that the obligation catalogue vendored here is byte-identical to its
-      # copy -- a skipped contract test is indistinguishable from a passing one,
-      # which is how the whole set of them silently stopped running once before.
-      #
-      # `tests/paths.py` finds it by sibling name, so no configuration is needed.
-      # A failure to check it out must not fail the build: this repository is
-      # public and its tests have to pass for a stranger who has only this one.
-      - uses: actions/checkout@v7
-        continue-on-error: true
-        with:
-          repository: sunflower-consulting/doc-engine
-          path: doc-engine
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install --upgrade pip
       - run: pip install -e '.[dev]'
-        working-directory: thresh
       - run: ruff check .
-        working-directory: thresh
       - run: pytest -q
-        working-directory: thresh
-      # Named, so the cross-repository checks cannot quietly go back to skipping.
-      - name: the cross-repository contract tests actually ran
-        working-directory: thresh
-        run: |
-          pytest -q tests/test_whole_chain.py tests/test_obligations.py -rs \
-            | tee /tmp/x.txt
-          if grep -q "separate repository" /tmp/x.txt; then
-            echo "::warning::the renderer was not checked out; its contract was not verified"
-          fi
+      # The report renderer is NOT checked out here, and that was tried and undone.
+      #
+      # Two cross-repository tests assert that the obligation catalogue vendored
+      # here is byte-identical to its copy there, and that the two machine files a
+      # real run produces are what its schemas permit. Checking it out as a sibling
+      # made those run in CI instead of only on a developer's machine, which looked
+      # like a straight win.
+      #
+      # It is not. It makes a green build here hostage to another repository's
+      # RELEASE STATE: this package's vendored copy is deliberately ahead of the
+      # renderer's between the day a catalogue is regenerated and the day the
+      # renderer takes the new one, and during that window CI would be red for work
+      # that is not wrong and is not here. A build that goes red for somebody else's
+      # pending commit teaches people to ignore it.
+      #
+      # So the coupling lives where it can be acted on: a developer with both
+      # checkouts sees the mismatch and re-vendors, and this job tests this package
+      # on its own. The digest in `obligations.SNAPSHOT_SHA256` is what CI checks,
+      # against the copy that ships in the wheel.
 
   quickstart:
     # The two-command quickstart is the headline claim, so it is tested rather
