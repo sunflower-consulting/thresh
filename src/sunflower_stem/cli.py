@@ -122,6 +122,15 @@ def _build_parser() -> argparse.ArgumentParser:
     ex.add_argument("engagement_dir", help="the engagement directory to write into")
     ex.add_argument("--runs-dir", default="runs",
                     help="where run bundles live (default: runs/)")
+    ex.add_argument("--snapshot", metavar="FILE", type=Path,
+                    help="an obligation catalogue other than the vendored one. "
+                         "Verified against its own digest either way.")
+    ex.add_argument("--no-control-mapping", action="store_true",
+                    help="write only the measurements. The mapping is written "
+                         "whenever the engagement file says which regimes the "
+                         "client carries, because a run that produced evidence "
+                         "about an obligation and did not say so is the gap this "
+                         "whole seam exists to close.")
     ex.set_defaults(func=_export)
 
     con = sub.add_parser(
@@ -714,6 +723,15 @@ def _export(args: argparse.Namespace) -> int:
 
     from sunflower_stem import runbundle
     from sunflower_stem.export import write_run
+    from sunflower_stem.obligations import (
+        ENGAGEMENT_FILE,
+        TrellisError,
+        attempted_taxa,
+        citable_findings,
+        coverage,
+        load_snapshot,
+        read_engagement_scope,
+    )
 
     bundle = Path(args.run_id)
     if not bundle.is_dir():
@@ -728,8 +746,38 @@ def _export(args: argparse.Namespace) -> int:
               f"killed partway through leaves events and no manifest.",
               file=sys.stderr)
         return 2
+    # The regulatory scope comes from the engagement's own file rather than from a
+    # flag or from the signed inventory. See `obligations.EngagementScope`.
+    scope = read_engagement_scope(args.engagement_dir)
+    mapping = None
+    scope_note = ""
+    if scope and not args.no_control_mapping:
+        try:
+            snapshot = load_snapshot(args.snapshot)
+        except TrellisError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        # Two different sets out of one bundle, and the split is the point.
+        # `attempted` is every technique MEASURED, rejected ones included, which is
+        # what lets an obligation reach `probed-clean`. The findings are only the
+        # ones a report would cite, which is what keeps a rejected measurement out
+        # of `tested`.
+        mapping = coverage(
+            snapshot, citable_findings(findings),
+            attempted=attempted_taxa(findings),
+            skipped=dict(manifest.get("skipped") or {}),
+            instruments=scope.instruments, system_classes=scope.system_classes,
+            run_id=str(manifest.get("run_id") or ""))
+    elif not scope:
+        scope_note = (
+            f"no ai_system block in {ENGAGEMENT_FILE}, so no control mapping was "
+            f"written. Add `ai_system: {{instruments: [...], classes: [...]}}` to "
+            f"say which regimes this client carries; without it every obligation "
+            f"in the catalogue renders as not-probed, which is a page of noise.")
+
     try:
-        out = write_run(args.engagement_dir, manifest, findings)
+        out = write_run(args.engagement_dir, manifest, findings,
+                        control_mapping=mapping)
     except (FileNotFoundError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -737,6 +785,18 @@ def _export(args: argparse.Namespace) -> int:
     quotable = manifest.get("quotable") is True
     print(f"wrote {out}")
     print(f"  {len(findings)} finding(s), {rows} lines of measurements")
+    if mapping is not None:
+        counts = mapping.get("counts") or {}
+        taxa = (mapping.get("taxa") or {}).get("counts") or {}
+        print(f"  control mapping: "
+              f"{mapping.get('testable_with_evidence', 0)} of "
+              f"{mapping.get('testable_total', 0)} obligations that admit test "
+              f"evidence have it, {counts.get('review-only', 0)} review-only")
+        print(f"  techniques: {taxa.get('mapped', 0)} mapped, "
+              f"{taxa.get('declined', 0)} declined, {taxa.get('unknown', 0)} "
+              f"unknown to the catalogue")
+    if scope_note:
+        print(f"  {scope_note}")
     if not quotable:
         why = manifest.get("not_quotable_because") or "not marked quotable"
         print(f"  NOT QUOTABLE ({why}), so `stem consolidate` will skip it. The "
@@ -745,7 +805,10 @@ def _export(args: argparse.Namespace) -> int:
 
 
 def _consolidate(args: argparse.Namespace) -> int:
-    from sunflower_stem.consolidate import write
+    from pathlib import Path
+
+    from sunflower_stem.consolidate import quoted_runs, write
+    from sunflower_stem.export import CONTROL_MAPPING
 
     try:
         out, notes = write(args.engagement_dir)
@@ -756,9 +819,17 @@ def _consolidate(args: argparse.Namespace) -> int:
 
     doc = yaml.safe_load(out.read_text()) or {}
     cases = doc.get("cases") or []
-    quoted = doc.get("runs_quoted") or []
+    # `quoted_runs` rather than a key on the document. It used to read
+    # `runs_quoted` from the document itself, and that key was removed when the
+    # consumer's schema turned out to be additionalProperties: false, so the
+    # provenance moved into the header comment and this line has printed "from 0
+    # quotable run(s)" over a file drawn from several ever since.
+    quoted = quoted_runs(doc, args.engagement_dir)
     print(f"wrote {out}")
     print(f"  {len(cases)} case(s) from {len(quoted)} quotable run(s)")
+    mapping = Path(args.engagement_dir) / CONTROL_MAPPING
+    if mapping.is_file():
+        print(f"  and {mapping.name}, from the newest quotable run entire")
     for note in notes:
         print(f"  - {note}")
     if not cases:

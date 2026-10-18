@@ -449,6 +449,133 @@ def in_scope(snapshot: dict, *, instruments=(), system_classes=()) -> dict[str, 
     return out
 
 
+#: The engagement file the report renderer reads, and where the regulatory scope
+#: already has a defined home.
+ENGAGEMENT_FILE = "engagement.yaml"
+
+
+@dataclass(frozen=True)
+class EngagementScope:
+    """Which regimes a client is in scope of, and as what kind of system.
+
+    WHY THIS IS NOT ON THE TARGET INVENTORY, which is the obvious place and the
+    wrong one. The inventory is the signed allowlist the POLICY GATE reads: what we
+    may touch, and nothing else. The instruments a client carries have no bearing on
+    what the gate permits, and three things argue against putting them there anyway.
+
+    It is frozen and hash-covered, so a new field moves `content_hash()` for every
+    inventory that already exists and an engagement that recorded a hash stops
+    verifying -- which the gate reads as an unverified inventory and refuses every
+    call under. It is read at RUN time and this is needed at EXPORT time, so the
+    run would carry a fact it never uses. And one run can honestly be reported
+    against more than one scope -- a client who wants an AI-Act view and a DORA
+    view -- which baking it into the signed document forecloses.
+
+    WHY NOT A FLAG EITHER. An engagement fact retyped per command is one that gets
+    mistyped, and the instruments decide the denominator of the only coverage figure
+    the report may state.
+
+    So it is read from `engagement.yaml`, where the renderer's own schema already
+    declares it, under `ai_system`, with a description that says what it is for:
+    "Scopes the control mapping: without it every obligation in the catalogue
+    renders as not-probed, which is a page of noise." Nothing had written it yet.
+    """
+
+    instruments: tuple[str, ...] = ()
+    system_classes: tuple[str, ...] = ()
+    #: provider, deployer or both. Carried because the catalogue keys obligations by
+    #: it and a later filter will want it; nothing here reads it yet, and inventing
+    #: a filter the renderer does not ask for would narrow a client's duties on this
+    #: tool's opinion.
+    role: str = ""
+
+    def __bool__(self) -> bool:
+        return bool(self.instruments or self.system_classes)
+
+
+def read_engagement_scope(engagement_dir: str | Path) -> EngagementScope:
+    """The `ai_system` block from an engagement's own file, or an empty scope.
+
+    Empty rather than raising, and the caller decides. An engagement with no
+    `ai_system` has not been scoped against the catalogue, which is a fact about the
+    engagement; the schema makes the block optional and this honours that. What must
+    not happen is rendering every obligation in the catalogue as `not-probed`,
+    because a client reading a page of duties they do not carry learns to skip the
+    appendix, and the one row that mattered goes with it.
+    """
+    import yaml
+
+    path = Path(engagement_dir) / ENGAGEMENT_FILE
+    if not path.is_file():
+        return EngagementScope()
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return EngagementScope()
+    block = (doc.get("ai_system") or {}) if isinstance(doc, dict) else {}
+    if not isinstance(block, dict):
+        return EngagementScope()
+    return EngagementScope(
+        instruments=tuple(str(x) for x in (block.get("instruments") or ())),
+        system_classes=tuple(str(x) for x in (block.get("classes") or ())),
+        role=str(block.get("role") or ""))
+
+
+#: Finding states a report CITES as evidence an obligation was spoken to.
+#:
+#: Narrow on purpose, and the omission that matters is `rejected`. A rejected
+#: finding is not a weak finding: it is the measurement that says the technique did
+#: NOT cause the result, because the control arm fired as often as the attack. It is
+#: still a measurement worth quoting -- `consolidate.QUOTABLE_STATES` includes it,
+#: and the rate belongs in the measurements appendix -- but citing it under
+#: `status: tested` would put "Article 15(1): tested, evidence: [five ids]" in a
+#: client's regulatory appendix for a run that established nothing.
+#:
+#: `human_review` is out for the opposite reason: it is waiting for a person to
+#: decide, and an appendix that cites it has decided on their behalf. Nothing is
+#: lost by leaving both out, because their techniques are still in `attempted_taxa`,
+#: so the obligations bearing on them read `probed-clean` -- we looked and nothing
+#: stands -- which is the true statement and a better one.
+CITABLE_STATES = frozenset({"validated", "reproduced", "confirmed"})
+
+
+def citable_findings(findings: list[dict]) -> list[dict]:
+    """The findings a report would cite, out of everything a run wrote down.
+
+    `coverage` takes "whichever set the report will cite", which for an engagement
+    with a written-up `findings.yaml` is that file: every row in it is a finding
+    somebody decided to report. A run bundle is not that. It holds every completed
+    measurement, including the ones whose control arm fired as often as the attack,
+    and handing those to `coverage` marks obligations `tested` on the strength of
+    results that proved the technique was not what caused them.
+
+    Measured on the bundled lab: a run at `--safety strong` finds nothing -- every
+    finding comes back rejected -- and without this filter it reported four
+    obligations as tested, citing five rejected measurements as the evidence.
+    """
+    return [f for f in findings
+            if str(f.get("state") or "").lower() in CITABLE_STATES]
+
+
+def attempted_taxa(findings: list[dict]) -> set[str]:
+    """The techniques a run actually MEASURED, read off the findings it wrote.
+
+    Recoverable from the bundle rather than needing a new manifest field, and the
+    reason is a property of the sweep rather than a convenience: a finding exists if
+    and only if a measurement completed. A case denied by the gate, skipped for want
+    of a scorable oracle, or killed by an error produces no finding, and each of
+    those is correctly absent here -- none of them established anything.
+
+    The half that is easy to get wrong is the other one: a case that RAN and found
+    nothing produces a REJECTED finding, not no finding, so its technique is counted
+    and the obligations bearing on it can reach `probed-clean`. Deriving this from
+    validated findings alone would collapse `probed-clean` into `not-probed` and
+    turn every clean result into "nobody looked" -- which is the exact pair this
+    whole module exists to keep apart.
+    """
+    return {str(f.get("taxon")) for f in findings if f.get("taxon")}
+
+
 def coverage(snapshot: dict, findings: list[dict], *, attempted: set[str],
              skipped: dict[str, str] | None = None,
              instruments=(), system_classes=(),

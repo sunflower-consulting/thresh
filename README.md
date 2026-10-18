@@ -110,8 +110,8 @@ stem preflight    check one engagement before it spends a message budget
 stem obligations  what a run's results mean against a client's duties
 stem judge        report the judge rung's configuration and its rubric library
 stem calibrate    check whether each judge rubric's threshold is calibrated
-stem export       write one run's measurements where a document generator reads them
-stem consolidate  build an engagement's measurements from its quotable runs
+stem export       write one run's numbers where a document generator reads them
+stem consolidate  build an engagement's machine files from its quotable runs
 ```
 
 `stem doctor` is authoritative. If it disagrees with this README, believe it.
@@ -134,6 +134,18 @@ Returning nothing for the last two alike is how a run's most differentiating out
 Measured against the bundled catalogue and a 244-case library: 82 techniques are mapped, 0 are declined, and 48 are unknown - roughly a fifth of a full run.
 All 48 are variants inside a family the catalogue already crosswalks, so inheriting a family's obligations would be one line of code; that line would have this tool inventing a regulatory judgement, which is the thing the catalogue's eight written declines exist to say you must not do.
 It names the neighbouring family so a human can decide, and claims nothing.
+
+`stem export` writes two machine files per run, not one.
+The measurements are the rates; the control mapping is what those rates mean against the duties the client carries, and it is written whenever the engagement says which regimes those are.
+
+That comes from `ai_system` in the engagement's own `engagement.yaml`, where the report renderer's schema already declares it - not from a flag, and not from the signed target inventory.
+The inventory is the policy gate's allowlist: what may be touched. It is frozen and its content hash covers every field, so adding one there would unverify every inventory that already exists; it is read when a run happens and this is needed when a run is exported; and one run can honestly be reported against more than one regulatory scope, which baking it into the signed document would foreclose.
+With no `ai_system` block nothing is written, because an engagement that has not been scoped against the catalogue would otherwise render every obligation in it as "not probed" - a page of duties the client does not carry, which teaches a reader to skip the appendix.
+
+One split inside that is worth knowing, because getting it wrong is an overclaim rather than an omission.
+A run bundle holds every completed measurement, including the ones whose control arm fired as often as the attack - the measurement that says the technique did *not* cause the result.
+Those count as techniques attempted, so the obligations bearing on them read `probed-clean`, which is a result.
+They are never cited as evidence that an obligation was tested.
 
 The obligation catalogue is vendored rather than fetched, because a report must be rebuildable later from its own bundle.
 It is CC BY 4.0 rather than Apache-2.0; see LICENSE-DATA.

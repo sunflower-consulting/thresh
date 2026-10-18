@@ -340,3 +340,255 @@ def test_the_control_mapping_is_consolidated_from_one_run_entire(tmp_path):
         "the newer run wins entire, rather than per obligation")
     assert any("superseded" in n for n in notes), (
         "and the earlier one is in the notes rather than merged")
+
+
+# --- the obligation lookup reaching the export path ------------------------------
+
+def _engagement(eng: Path, **ai_system) -> Path:
+    """An engagement directory, with `ai_system` when a scope is wanted."""
+    eng.mkdir(parents=True, exist_ok=True)
+    doc: dict = {"client": "Acme Bank AS", "client_short": "Acme",
+                 "engagement": "assistant assessment", "reference": "SF-2026-EX01",
+                 "version": "1.0", "date": "2026-10-18",
+                 "classification": "CONFIDENTIAL", "consultancy": "Sunflower",
+                 "authors": [{"name": "A Tester", "role": "Consultant"}],
+                 "methodology_version": "v1.0.0",
+                 "test_window": {"start": "2026-10-18", "end": "2026-10-19"},
+                 "scope": {"in": ["the assistant"], "out": []},
+                 "executive_summary": "Placeholder."}
+    if ai_system:
+        doc["ai_system"] = dict(ai_system)
+    (eng / "engagement.yaml").write_text(yaml.safe_dump(doc, sort_keys=False))
+    return eng
+
+
+def _run(tmp_path: Path, eng: Path, rid: str, findings, **kw) -> int:
+    """`stem export` over a bundle, through the real CLI."""
+    from sunflower_stem.cli import main
+
+    _bundle(tmp_path, rid, quotable=kw.pop("quotable", True), findings=findings)
+    argv = ["export", rid, str(eng), "--runs-dir", str(tmp_path)]
+    argv += kw.pop("extra", [])
+    return main(argv)
+
+
+def test_an_engagement_that_named_no_regimes_gets_no_control_mapping(tmp_path, capsys):
+    """The renderer's schema makes `ai_system` optional and says why it matters:
+    without it every obligation in the catalogue renders as not-probed, which is a
+    page of noise. A client reading duties they do not carry learns to skip the
+    appendix, and the row that mattered goes with it. So nothing is written, and the
+    readout says what to add."""
+    from sunflower_stem.export import CONTROL_MAPPING
+
+    eng = _engagement(tmp_path / "eng")
+    assert _run(tmp_path, eng, "2026-01-01T00-00-00_a", [_finding()]) == 0
+    out = capsys.readouterr().out
+    assert not list(eng.rglob(CONTROL_MAPPING))
+    assert "no ai_system block" in out
+    assert "page of noise" in out
+    assert (eng / "runs" / "2026-01-01T00-00-00_a" / "measurements.yaml").is_file(), (
+        "the first machine file still arrives")
+
+
+def test_the_regimes_come_from_the_engagement_file_and_not_from_a_flag(tmp_path):
+    """The scope is an engagement fact with a home the renderer already defined. It
+    is not on the signed inventory: that model is the policy gate's allowlist, it is
+    frozen and hash-covered so a new field unverifies every inventory that exists,
+    it is read at run time where this is needed at export time, and one run can
+    honestly be reported against more than one scope."""
+    from sunflower_stem.export import CONTROL_MAPPING
+
+    eng = _engagement(tmp_path / "eng", instruments=["dora"],
+                      classes=["ict-third-party"], role="deployer")
+    assert _run(tmp_path, eng, "2026-01-01T00-00-00_a", [_finding()]) == 0
+    doc = yaml.safe_load(
+        (eng / "runs" / "2026-01-01T00-00-00_a" / CONTROL_MAPPING).read_text())
+    assert doc["scope"] == {"instruments": ["dora"],
+                            "system_classes": ["ict-third-party"]}
+    assert {r["instrument"] for r in doc["obligations"]} == {"dora"}, (
+        "an engagement is shown the duties it carries and no others")
+
+
+def test_a_rejected_measurement_is_never_cited_as_evidence(tmp_path):
+    """THE overclaim this wiring would otherwise introduce.
+
+    A run bundle holds every completed measurement, including the ones whose control
+    arm fired as often as the attack -- which is the measurement that says the
+    technique did NOT cause the result. Handing the whole list to the lookup marks
+    obligations `tested` and prints those ids as the evidence, so a hardened target
+    that proved nothing reads as four obligations tested in a client's regulatory
+    appendix. Measured on the bundled lab at `--safety strong`, which is exactly
+    what it did.
+
+    What it must say instead is `probed-clean`: a technique bearing on it ran and
+    nothing stood up. That is a result, and a better one for the client."""
+    from sunflower_stem.export import CONTROL_MAPPING
+
+    eng = _engagement(tmp_path / "eng", instruments=["ai-act", "dora"],
+                      classes=["annex-iii-high-risk"])
+    rejected = _finding(case_id="C-1", state="rejected")
+    rejected["taxon"] = "jailbreak-crescendo"
+    assert _run(tmp_path, eng, "2026-01-01T00-00-00_a", [rejected]) == 0
+    doc = yaml.safe_load(
+        (eng / "runs" / "2026-01-01T00-00-00_a" / CONTROL_MAPPING).read_text())
+
+    assert doc["testable_with_evidence"] == 0
+    assert not [r for r in doc["obligations"] if r["status"] == "tested"]
+    clean = [r for r in doc["obligations"] if r["status"] == "probed-clean"]
+    assert clean, "it ran, so the obligations bearing on it are probed-clean"
+    assert all("jailbreak-crescendo" in r["techniques_run"] for r in clean)
+    for row in doc["obligations"]:
+        assert rejected["id"] not in (row.get("findings") or [])
+
+
+def test_a_validated_measurement_is_cited(tmp_path):
+    """The other half, or the test above would pass on a mapping that cites
+    nothing at all."""
+    from sunflower_stem.export import CONTROL_MAPPING
+
+    eng = _engagement(tmp_path / "eng", instruments=["ai-act", "dora"],
+                      classes=["annex-iii-high-risk"])
+    hit = _finding(case_id="C-1", state="validated")
+    hit["taxon"] = "jailbreak-crescendo"
+    assert _run(tmp_path, eng, "2026-01-01T00-00-00_a", [hit]) == 0
+    doc = yaml.safe_load(
+        (eng / "runs" / "2026-01-01T00-00-00_a" / CONTROL_MAPPING).read_text())
+    tested = [r for r in doc["obligations"] if r["status"] == "tested"]
+    assert tested
+    assert all(hit["id"] in r["findings"] for r in tested)
+    assert doc["testable_with_evidence"] == len(tested)
+
+
+def test_a_technique_that_ran_clean_is_told_from_one_that_never_ran(tmp_path):
+    """The pair the whole module exists to keep apart, end to end through the CLI.
+    `attempted` is derived from every completed measurement and the citations from
+    the subset a report would quote, so one bundle answers both questions."""
+    from sunflower_stem.export import CONTROL_MAPPING
+
+    eng = _engagement(tmp_path / "eng", instruments=["ai-act"],
+                      classes=["annex-iii-high-risk"])
+    rejected = _finding(case_id="C-1", state="rejected")
+    rejected["taxon"] = "jailbreak-crescendo"
+    assert _run(tmp_path, eng, "2026-01-01T00-00-00_a", [rejected]) == 0
+    doc = yaml.safe_load(
+        (eng / "runs" / "2026-01-01T00-00-00_a" / CONTROL_MAPPING).read_text())
+    by_status: dict[str, list[str]] = {}
+    for row in doc["obligations"]:
+        by_status.setdefault(row["status"], []).append(row["obligation"])
+    assert by_status.get("probed-clean"), "something ran"
+    assert by_status.get("not-probed"), "and something did not"
+    assert not set(by_status["probed-clean"]) & set(by_status["not-probed"])
+    for oid in by_status["not-probed"]:
+        row = next(r for r in doc["obligations"] if r["obligation"] == oid)
+        assert row.get("reason"), "and the one that did not run says why"
+
+
+def test_the_run_that_measured_it_is_the_run_the_mapping_names(tmp_path):
+    """The consuming schema requires `run_id` at the top level, and the engine this
+    was ported from never emitted one."""
+    from sunflower_stem.export import CONTROL_MAPPING
+
+    eng = _engagement(tmp_path / "eng", instruments=["dora"])
+    assert _run(tmp_path, eng, "2026-01-01T00-00-00_a", [_finding()]) == 0
+    doc = yaml.safe_load(
+        (eng / "runs" / "2026-01-01T00-00-00_a" / CONTROL_MAPPING).read_text())
+    assert doc["run_id"] == "2026-01-01T00-00-00_a"
+
+
+def test_the_mapping_can_be_declined_for_one_export(tmp_path):
+    from sunflower_stem.export import CONTROL_MAPPING
+
+    eng = _engagement(tmp_path / "eng", instruments=["dora"])
+    assert _run(tmp_path, eng, "2026-01-01T00-00-00_a", [_finding()],
+                extra=["--no-control-mapping"]) == 0
+    assert not list(eng.rglob(CONTROL_MAPPING))
+
+
+def test_a_catalogue_that_fails_its_own_digest_stops_the_export(tmp_path):
+    """Exit 2, because it is a configuration fault rather than a measured one, and
+    an export that silently skipped the mapping would look like an engagement that
+    was never scoped."""
+    eng = _engagement(tmp_path / "eng", instruments=["dora"])
+    bad = tmp_path / "snapshot.yaml"
+    bad.write_text(yaml.safe_dump({"obligations": {"x": {}}, "body_sha256": "nope"}))
+    assert _run(tmp_path, eng, "2026-01-01T00-00-00_a", [_finding()],
+                extra=["--snapshot", str(bad)]) == 2
+
+
+def test_both_machine_files_reach_the_engagement_root(tmp_path, capsys):
+    """What the seam is for. The measurements are per case from the newest quotable
+    run that measured each; the mapping is one run entire, because its rows
+    interlock."""
+    from sunflower_stem.cli import main
+    from sunflower_stem.export import CONTROL_MAPPING, MEASUREMENTS
+
+    eng = _engagement(tmp_path / "eng", instruments=["ai-act"],
+                      classes=["annex-iii-high-risk"])
+    for rid in ("2026-01-01T00-00-00_a", "2026-01-02T00-00-00_b"):
+        assert _run(tmp_path, eng, rid, [_finding()]) == 0
+    assert main(["consolidate", str(eng)]) == 0
+
+    assert (eng / MEASUREMENTS).is_file()
+    assert (eng / CONTROL_MAPPING).is_file()
+    out = capsys.readouterr().out
+    assert "from 2 quotable run(s)" in out, (
+        "the count read a key removed when it broke the consumer's schema, so it "
+        "printed 0 over a file drawn from several")
+    assert CONTROL_MAPPING in out
+
+
+@pytest.mark.skipif(not DOC_ENGINE.is_dir(), reason="the renderer is another repo")
+def test_the_control_mapping_satisfies_the_consumer_contract(tmp_path):
+    """Structural, so it runs without the renderer's own validator installed:
+    every key the schema requires is present, every status is in its closed enum,
+    and the two combinations the schema refuses are absent."""
+    from sunflower_stem.cli import main
+    from sunflower_stem.export import CONTROL_MAPPING
+
+    schema = json.loads(
+        (DOC_ENGINE / "schema/control-mapping.schema.json").read_text())
+    eng = _engagement(tmp_path / "eng", instruments=["ai-act", "dora"],
+                      classes=["annex-iii-high-risk"])
+    hit = _finding(case_id="C-1", state="validated")
+    hit["taxon"] = "jailbreak-crescendo"
+    assert _run(tmp_path, eng, "2026-01-01T00-00-00_a", [hit]) == 0
+    assert main(["consolidate", str(eng)]) == 0
+    doc = yaml.safe_load((eng / CONTROL_MAPPING).read_text())
+
+    for key in schema["required"]:
+        assert key in doc, f"required by the consumer and absent: {key}"
+    rows = schema["properties"]["obligations"]["items"]
+    statuses = set(rows["properties"]["status"]["enum"])
+    for row in doc["obligations"]:
+        for key in rows["required"]:
+            assert key in row, f"{row.get('obligation')}: missing {key}"
+        assert row["status"] in statuses
+        assert row["verifiable"] in set(rows["properties"]["verifiable"]["enum"])
+        if row["status"] == "review-only":
+            assert not row.get("findings"), "no test speaks to a document"
+        if row["status"] == "not-probed":
+            assert row.get("reason"), "'no findings' and 'nobody looked' must differ"
+        if row["status"] == "tested":
+            assert row.get("findings")
+
+
+@pytest.mark.skipif(not DOC_ENGINE.is_dir(), reason="the renderer is another repo")
+def test_the_control_mapping_passes_the_renderers_own_validator(tmp_path):
+    """The structural test above states the rules in this repository's words. This
+    one hands the file to the renderer's actual validator, so the two cannot drift."""
+    jsonschema = pytest.importorskip("jsonschema")
+    from sunflower_stem.cli import main
+    from sunflower_stem.export import CONTROL_MAPPING
+
+    schema = json.loads(
+        (DOC_ENGINE / "schema/control-mapping.schema.json").read_text())
+    eng = _engagement(tmp_path / "eng", instruments=["ai-act"],
+                      classes=["annex-iii-high-risk"])
+    assert _run(tmp_path, eng, "2026-01-01T00-00-00_a", [_finding()]) == 0
+    assert main(["consolidate", str(eng)]) == 0
+
+    validator = jsonschema.Draft202012Validator(schema)
+    for path in sorted(eng.rglob(CONTROL_MAPPING)):
+        errors = sorted(validator.iter_errors(yaml.safe_load(path.read_text())),
+                        key=lambda e: list(e.path))
+        assert not errors, f"{path.name}: {[e.message for e in errors[:3]]}"
