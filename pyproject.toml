@@ -53,7 +53,11 @@ where = ["src"]
 sunflower_stem = ["rubrics/*.yaml", "trellis/*.yaml"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+# `src` for the package, `.` so `tests.paths` imports whatever pytest was launched
+# as. Without the second entry `python -m pytest` works and a bare `pytest` does
+# not, because only the former puts the working directory on sys.path -- so every
+# local run and every worktree check passed while CI failed on all four Pythons.
+pythonpath = ["src", "."]
 testpaths = ["tests"]
 
 [tool.ruff]
