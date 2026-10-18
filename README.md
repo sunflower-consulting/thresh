@@ -120,6 +120,12 @@ thresh consolidate  build an engagement's machine files from its quotable runs
 
 The commands are a convenience over a library. Everything here is reachable from Python, and a real engagement is a script - the client's endpoint, their signed scope, their canary, the cases that apply to them. [`examples/engagement.py`](examples/engagement.py) is that script, runnable as it stands against the bundled target, with the two lines a client run changes marked; a test executes it, so it cannot rot into advice that no longer works.
 
+The names it needs are re-exported from the top level, lazily, so `import thresh` stays cheap and `thresh --help` does not pay for pydantic to print a line:
+
+```python
+from sunflower_thresh import AgentContext, PolicyEngine, load_inventory
+```
+
 There is deliberately no facade. Six objects are assembled in order - the signed inventory, the evidence store, the policy gate, the context every tool call passes through, the case selection, and the run bundle - and the assembly is the API. It is that explicit because each step is a decision somebody has to be able to point at afterwards: which scope, which evidence policy, which cases, which budget.
 
 `thresh corpus` reports two numbers that are easy to conflate and must not be: how many cases loaded, and how many can actually be sent. A case whose payload carries an unbound placeholder is reported unreachable and is not sent, because a half-expanded prompt arriving at a client is worse than a case that did not run. And a library where some cases fail to parse is refused outright rather than loaded short - the failure mode this command exists to prevent is a run that silently measured 243 of 244 cases and reported a rate over the wrong denominator.
