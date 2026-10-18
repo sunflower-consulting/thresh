@@ -26,6 +26,13 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
+    # Test-only, and it buys the two checks that matter most: the measurement
+    # and control-mapping files a real run produces are validated against the
+    # REPORT RENDERER's own schemas, read from its repository rather than
+    # copied. Without it those tests skip, and a skipped contract test is
+    # indistinguishable from a passing one.
+    "jsonschema>=4.0",
+
 ]
 
 [project.scripts]
