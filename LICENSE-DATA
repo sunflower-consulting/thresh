@@ -3,9 +3,9 @@ Creative Commons Attribution 4.0 International (CC BY 4.0)
 This package VENDORS a regulatory dataset that is not covered by the Apache
 License in LICENSE. The file
 
-    src/sunflower_stem/trellis/snapshot.yaml
+    src/sunflower_thresh/almanac/snapshot.yaml
 
-is a verbatim copy of `dist/snapshot.yaml` from the trellis project and is
+is a verbatim copy of `dist/snapshot.yaml` from the almanac project and is
 licensed under CC BY 4.0:
 
     https://creativecommons.org/licenses/by/4.0/
@@ -13,11 +13,11 @@ licensed under CC BY 4.0:
 You may share and adapt it, including commercially, provided you give
 appropriate credit and indicate if changes were made.
 
-Attribution: Sunflower Consulting, https://github.com/sunflower-consulting/trellis
+Attribution: Sunflower Consulting, https://github.com/sunflower-consulting/almanac
 
 NO CHANGES WERE MADE. The copy is byte-for-byte, which is checkable rather than
 asserted: the file carries its own `body_sha256` over a canonical serialisation
-of its content, `sunflower_stem.obligations.load_snapshot` recomputes and
+of its content, `sunflower_thresh.obligations.load_snapshot` recomputes and
 verifies it on every load, and a test pins the sha256 of the whole file against
 the copy the report renderer holds. It is vendored rather than fetched because a
 report must be rebuildable later from its own bundle, and a regulatory dataset

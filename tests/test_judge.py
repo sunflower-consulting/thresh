@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-from sunflower_stem.judge import (
+from sunflower_thresh.judge import (
     MIN_AGREEMENT,
     MIN_LABELS,
     Agreement,
@@ -30,9 +30,9 @@ from sunflower_stem.judge import (
     _parse_verdict,
     load_rubrics,
 )
-from sunflower_stem.modelcall import Message, ModelReply, ScriptedTransport, _answer
-from sunflower_stem.oracles import ChatObservation, RefusalOracle, build_ladder
-from sunflower_stem.schemas.finding import MAX_STATE_FOR, EvidenceStrength, FindingState
+from sunflower_thresh.modelcall import Message, ModelReply, ScriptedTransport, _answer
+from sunflower_thresh.oracles import ChatObservation, RefusalOracle, build_ladder
+from sunflower_thresh.schemas.finding import MAX_STATE_FOR, EvidenceStrength, FindingState
 
 # --- captured from the reference box, not invented ------------------------------
 #
@@ -175,7 +175,7 @@ def test_configuring_a_judge_does_not_silently_replace_the_refusal_suppressor():
     `_build_rung` prefers a judge for the refusal rung whenever one exists and
     falls through silently when it cannot build one. The corpus uses `refusal` in
     206 of its 244 cases, so if an uncalibrated judge were accepted here, pointing
-    stem at an endpoint would swap a deterministic suppressor for an unmeasured
+    thresh at an endpoint would swap a deterministic suppressor for an unmeasured
     model across nearly the whole library, with no flag and nothing in the output
     saying so."""
     judge = Judge(ScriptedTransport("j", '{"score": 5}'), rubrics={"refusal": _rubric()})
@@ -207,7 +207,7 @@ def test_the_shipped_rubric_library_is_entirely_uncalibrated():
 # --- identity, provenance and the cap --------------------------------------------
 
 def test_a_judge_verdict_cannot_reach_validated():
-    """stem's claim is that `validated` means falsified by code. A second
+    """thresh's claim is that `validated` means falsified by code. A second
     stochastic system agreeing is not a falsification."""
     assert MAX_STATE_FOR[EvidenceStrength.JUDGE] is FindingState.REPRODUCED
     assert MAX_STATE_FOR[EvidenceStrength.STRUCTURAL] is FindingState.VALIDATED

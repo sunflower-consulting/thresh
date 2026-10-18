@@ -1,4 +1,4 @@
-sunflower-stem
+sunflower-thresh
 Copyright 2026 Sunflower Consulting
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,12 +15,12 @@ limitations under the License.
 
 VENDORED DATA
 
-This package includes `src/sunflower_stem/trellis/snapshot.yaml`, a verbatim copy
+This package includes `src/sunflower_thresh/almanac/snapshot.yaml`, a verbatim copy
 of the obligation catalogue, crosswalk, technique vocabulary, classification rules
-and calendar published by the trellis project. That file is licensed under CC BY
+and calendar published by the almanac project. That file is licensed under CC BY
 4.0 rather than under the Apache License above; see LICENSE-DATA.
 
-  Attribution: Sunflower Consulting, https://github.com/sunflower-consulting/trellis
+  Attribution: Sunflower Consulting, https://github.com/sunflower-consulting/almanac
 
 The technique vocabulary in it is derived from the OWASP Top 10 for Large Language
 Model Applications and the structure of OWASP's GenAI security material. OWASP is a

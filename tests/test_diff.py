@@ -28,8 +28,8 @@ from pathlib import Path
 
 import pytest
 
-from sunflower_stem import runbundle
-from sunflower_stem.diff import (
+from sunflower_thresh import runbundle
+from sunflower_thresh.diff import (
     MOVED,
     STOOD_UP,
     Diff,
@@ -39,7 +39,7 @@ from sunflower_stem.diff import (
     render,
     variants_of,
 )
-from sunflower_stem.schemas.finding import FindingState
+from sunflower_thresh.schemas.finding import FindingState
 
 TAXON = "llm01-direct-override"
 
@@ -138,7 +138,7 @@ def test_what_counts_as_real_is_not_defined_twice():
     engine this was ported from used a narrower tuple -- so the two would have
     disagreed about every judge-proved finding, which `MAX_STATE_FOR[JUDGE]` caps at
     REPRODUCED."""
-    from sunflower_stem.obligations import CITABLE_STATES
+    from sunflower_thresh.obligations import CITABLE_STATES
 
     assert STOOD_UP is CITABLE_STATES
     assert "reproduced" in STOOD_UP
@@ -442,7 +442,7 @@ def test_a_case_absent_from_the_later_run_reports_not_attempted(tmp_path):
 
 @pytest.mark.parametrize("bad", [None, {}, {"asr": "nonsense"}])
 def test_a_malformed_rate_does_not_raise(bad):
-    from sunflower_stem.diff import Row
+    from sunflower_thresh.diff import Row
 
     row = Row(signature="case:X", before={"trials": bad}, after={"trials": bad})
     assert row.asr_before == 0.0

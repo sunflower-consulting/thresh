@@ -9,7 +9,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from sunflower_stem.schemas.target import AuthorizationRecord, TargetInventory
+from sunflower_thresh.schemas.target import AuthorizationRecord, TargetInventory
 
 #: The tools a chat assessment needs and nothing else. An inventory is an
 #: allowlist, so this list is the whole permitted surface.
@@ -19,7 +19,7 @@ from sunflower_stem.schemas.target import AuthorizationRecord, TargetInventory
 #: membership, so an inventory built from this fixture permitted nothing that exists
 #: and omitted `chat_say`, which is the one verb without which no case can run. It
 #: went unnoticed because nothing had yet asked the fixture to run a chat case --
-#: `stem preflight` is the first thing that does.
+#: `thresh preflight` is the first thing that does.
 CHAT_TOOLS = ("chat_open", "chat_say", "chat_reset")
 
 

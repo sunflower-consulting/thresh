@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from sunflower_stem.modelcall import (
+from sunflower_thresh.modelcall import (
     IGNORED_BY_OLLAMA,
     ChatTransport,
     Message,
@@ -296,7 +296,7 @@ def test_another_backend_gets_the_parameter_rather_than_a_refusal(server, name):
 def test_ollama_is_recognised_from_its_endpoint_and_can_be_overridden():
     """A guess from the URL is all there is without sending a request, so it is
     wrong in the safe direction: an endpoint nobody recognises is refused nothing."""
-    from sunflower_stem.modelcall import ChatTransport
+    from sunflower_thresh.modelcall import ChatTransport
 
     for url in ("http://127.0.0.1:11434/v1", "http://ollama.internal/v1",
                 "http://OLLAMA:11434/v1"):

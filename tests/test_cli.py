@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import pathlib
 
-from sunflower_stem.cli import _build_parser, main
+from sunflower_thresh.cli import _build_parser, main
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 
@@ -46,9 +46,9 @@ def test_every_advertised_command_runs(capsys):
 
 
 def test_no_subcommand_prints_help_rather_than_an_error(capsys):
-    """`stem` with no arguments is a reader orienting themselves, not a mistake."""
+    """`thresh` with no arguments is a reader orienting themselves, not a mistake."""
     assert main([]) == 0
-    assert "usage: stem" in capsys.readouterr().out
+    assert "usage: thresh" in capsys.readouterr().out
 
 
 def test_the_judge_readout_works_with_no_endpoint_and_no_network(capsys):
@@ -68,7 +68,7 @@ def test_probing_without_configuration_exits_nonzero(capsys):
 
 
 def test_an_unreachable_judge_endpoint_exits_nonzero_and_says_so(capsys):
-    """A script that points stem at a dead endpoint has to be able to tell. Port 1
+    """A script that points thresh at a dead endpoint has to be able to tell. Port 1
     is reserved and refuses immediately, so this costs no wall-clock."""
     code = main(["judge", "--probe", "--endpoint", "http://127.0.0.1:1/v1",
                  "--model", "nothing-serves-this"])
@@ -88,7 +88,7 @@ def test_the_failure_line_does_not_precede_the_context_it_refers_to(capsys):
 
 
 def test_the_readme_documents_exactly_the_commands_that_exist():
-    """The README publishes a command list and then says `stem doctor` is
+    """The README publishes a command list and then says `thresh doctor` is
     authoritative if the two disagree. That is the right fallback and a poor
     substitute for them agreeing: a reader meets the README first, and a command
     missing from it is a capability nobody finds.
@@ -97,7 +97,7 @@ def test_the_readme_documents_exactly_the_commands_that_exist():
     described, so the list is compared rather than trusted."""
     readme = (REPO / "README.md").read_text()
     block = readme.split("## Commands", 1)[1].split("```", 2)[1]
-    documented = {ln.split()[1] for ln in block.splitlines() if ln.startswith("stem ")}
+    documented = {ln.split()[1] for ln in block.splitlines() if ln.startswith("thresh ")}
 
     sub = next(a for a in _build_parser()._actions
                if isinstance(a, argparse._SubParsersAction))
@@ -112,7 +112,7 @@ def test_the_judge_readout_names_every_rubric_and_its_state(capsys):
     """One word, "uncalibrated", covers three situations that send a reader to
     three different places: measure it, measure more of it, or fix the rubric. So
     the state is printed per rubric rather than as a count."""
-    from sunflower_stem.judge import load_rubrics
+    from sunflower_thresh.judge import load_rubrics
 
     assert main(["judge"]) == 0
     out = capsys.readouterr().out

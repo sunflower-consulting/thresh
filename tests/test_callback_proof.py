@@ -29,11 +29,11 @@ import urllib.request
 
 import pytest
 
-from sunflower_stem.collector import CallbackCollector
-from sunflower_stem.evidence.store import EvidenceStore
-from sunflower_stem.lab import serve
-from sunflower_stem.lab.scoreboard import CANARY
-from sunflower_stem.render import Fetch, VictimRenderer, host_allowed
+from sunflower_thresh.collector import CallbackCollector
+from sunflower_thresh.evidence.store import EvidenceStore
+from sunflower_thresh.lab import serve
+from sunflower_thresh.lab.scoreboard import CANARY
+from sunflower_thresh.render import Fetch, VictimRenderer, host_allowed
 
 
 @pytest.fixture
@@ -295,12 +295,12 @@ def test_a_collector_reachable_from_outside_needs_the_engagement_to_have_signed(
 
     import pytest
 
-    from sunflower_stem.collector import (
+    from sunflower_thresh.collector import (
         CALLBACK_CAPABILITY,
         CallbackCollector,
         CollectorRefused,
     )
-    from sunflower_stem.schemas.target import AuthorizationRecord, TargetInventory
+    from sunflower_thresh.schemas.target import AuthorizationRecord, TargetInventory
 
     def _inv(**caps):
         return TargetInventory(
@@ -323,7 +323,7 @@ def test_a_collector_reachable_from_outside_needs_the_engagement_to_have_signed(
     # server is `ThreadingHTTPServer`, whose address family is IPv4, so an IPv6
     # loopback bind fails on the socket rather than on the gate. That is a separate
     # and pre-existing gap, and asserting it works would hide it.
-    from sunflower_stem.collector import _is_loopback
+    from sunflower_thresh.collector import _is_loopback
 
     assert _is_loopback("::1"), "the gate must not refuse IPv6 loopback"
     for host in ("127.0.0.1", "localhost"):
@@ -356,12 +356,12 @@ def test_a_lapsed_authorization_cannot_stand_up_a_routable_collector():
 
     import pytest
 
-    from sunflower_stem.collector import (
+    from sunflower_thresh.collector import (
         CALLBACK_CAPABILITY,
         CallbackCollector,
         CollectorRefused,
     )
-    from sunflower_stem.schemas.target import AuthorizationRecord, TargetInventory
+    from sunflower_thresh.schemas.target import AuthorizationRecord, TargetInventory
 
     def _inv(**auth):
         base = {"authorized_by": "a", "authorized_for": "b", "scope_summary": "s",

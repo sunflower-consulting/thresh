@@ -31,13 +31,13 @@ import pytest
 from tests.paths import CORPUS
 from tests.paths import DOC_ENGINE_SNAPSHOT as DOC_ENGINE
 
-from sunflower_stem.obligations import (
+from sunflower_thresh.obligations import (
     DEFAULT_SNAPSHOT,
     SNAPSHOT_SHA256,
     STATUSES,
     VERIFIABLE,
+    AlmanacError,
     TaxonState,
-    TrellisError,
     body_sha256,
     cite_as,
     coverage,
@@ -316,7 +316,7 @@ def test_a_snapshot_that_does_not_match_its_digest_is_refused(tmp_path):
     doc["obligations"]["x:Art.1"]["title"] = "edited by hand"
     p = tmp_path / "snapshot.yaml"
     p.write_text(yaml.safe_dump(doc))
-    with pytest.raises(TrellisError) as exc:
+    with pytest.raises(AlmanacError) as exc:
         load_snapshot(p)
     assert "does not hold the bytes it claims" in str(exc.value)
     assert load_snapshot(p, verify=False), "and can be read knowingly"
@@ -329,7 +329,7 @@ def test_a_snapshot_with_no_digest_is_refused(tmp_path):
     del doc["body_sha256"]
     p = tmp_path / "snapshot.yaml"
     p.write_text(yaml.safe_dump(doc))
-    with pytest.raises(TrellisError, match="no body_sha256"):
+    with pytest.raises(AlmanacError, match="no body_sha256"):
         load_snapshot(p)
 
 
@@ -338,11 +338,11 @@ def test_a_missing_or_empty_snapshot_raises_rather_than_returning_nothing(tmp_pa
     table is a destination state; an empty obligation set never is -- "0 obligations
     covered" renders as a result, and the thing that produced it was a missing
     file."""
-    with pytest.raises(TrellisError, match="vendored, not fetched"):
+    with pytest.raises(AlmanacError, match="vendored, not fetched"):
         load_snapshot(tmp_path / "nope.yaml")
     p = tmp_path / "empty.yaml"
     p.write_text("obligations: {}\n")
-    with pytest.raises(TrellisError, match="no obligations"):
+    with pytest.raises(AlmanacError, match="no obligations"):
         load_snapshot(p)
 
 
@@ -371,14 +371,14 @@ def test_the_licence_for_the_vendored_data_is_published():
     root = Path(__file__).resolve().parents[1]
     data_licence = (root / "LICENSE-DATA").read_text()
     assert "CC BY 4.0" in data_licence
-    assert "trellis" in data_licence
+    assert "almanac" in data_licence
     assert "NO CHANGES WERE MADE" in data_licence
     notice = (root / "NOTICE").read_text()
     assert "LICENSE-DATA" in notice
     assert "OWASP" in notice, "the vocabulary is derived from OWASP material"
     packaged = (root / "pyproject.toml").read_text()
     assert "LICENSE-DATA" in packaged, "and it has to ship in the wheel"
-    assert 'trellis/*.yaml' in packaged, "as does the data it covers"
+    assert 'almanac/*.yaml' in packaged, "as does the data it covers"
 
 
 # --- provenance -------------------------------------------------------------------
@@ -400,9 +400,9 @@ def test_a_report_cites_something_that_exists(snap):
 
 def test_the_untrustworthy_revision_is_still_shown_not_swallowed(snap):
     cov = coverage(snap, [], attempted=set(), instruments=("ai-act",))
-    assert cov["trellis_version"].startswith("sha256:")
-    assert cov["trellis_revision_claimed"].endswith("-dirty")
-    assert "edited working tree" in cov["trellis_provenance_fault"]
+    assert cov["almanac_version"].startswith("sha256:")
+    assert cov["almanac_revision_claimed"].endswith("-dirty")
+    assert "edited working tree" in cov["almanac_provenance_fault"]
     text = render(cov)
     assert "cited by digest" in text
 
@@ -458,7 +458,7 @@ def test_a_fifth_of_the_corpus_lands_in_the_state_that_did_not_exist(snap):
     """82 mapped, 0 declined, 48 unknown over 130 taxa. The declined bucket being
     empty is why the tests above drive it with hand-written findings: a three-state
     implementation exercised only against this corpus would never run that branch."""
-    from sunflower_stem.corpus import load_corpus
+    from sunflower_thresh.corpus import load_corpus
 
     corpus = load_corpus(CORPUS)
     taxa = {c.taxon for c in corpus.cases.values() if c.taxon}
@@ -479,7 +479,7 @@ def test_an_unknown_technique_leaves_a_trace_in_the_appendix(snap):
     """The whole point. It contributes to no obligation row, so without the taxa
     section it would leave no trace at all -- and the consuming schema's
     `additionalProperties` is true, so the section travels without a schema change."""
-    from sunflower_stem.corpus import load_corpus
+    from sunflower_thresh.corpus import load_corpus
 
     corpus = load_corpus(CORPUS)
     taxa = {c.taxon for c in corpus.cases.values() if c.taxon}
@@ -522,17 +522,34 @@ def test_the_readout_refuses_to_infer_and_says_so():
 def test_a_snapshot_fault_is_printed_rather_than_rendered_over():
     doc = _mini(crosswalk={"techniques": {"fam-hollow": {"obligations": []}}})
     cov = coverage(doc, [], attempted=set(), instruments=("x",))
-    assert cov["trellis_faults"]
+    assert cov["almanac_faults"]
     assert "no obligations" in render(cov)
 
 
 def test_the_snapshot_lives_inside_the_package_and_not_beside_it():
     """Otherwise it resolves in a checkout and not in an installed wheel, and
-    `stem obligations` works for the person who wrote it and nobody else. The engine
-    this was ported from kept it at `config/trellis/` two directories above the
+    `thresh obligations` works for the person who wrote it and nobody else. The engine
+    this was ported from kept it at `config/almanac/` two directories above the
     package, which is correct there and unshippable here."""
-    import sunflower_stem
+    import sunflower_thresh
 
-    package = Path(sunflower_stem.__file__).resolve().parent
+    package = Path(sunflower_thresh.__file__).resolve().parent
     assert DEFAULT_SNAPSHOT.is_relative_to(package)
     assert DEFAULT_SNAPSHOT.is_file()
+
+
+def test_the_revision_is_emitted_under_the_renderers_own_key_too(snap):
+    """The catalogue was renamed from `trellis` to `almanac`, and these two keys are
+    the only ones in this document the renderer DECLARES. Its schema allows extra
+    properties, so renaming them alone would not fail validation -- the report would
+    just silently stop citing the dataset revision it resolved against, which is the
+    one fact a rebuilt report has to carry. Both pairs are emitted until the
+    renderer reads the new names.
+    """
+    from sunflower_thresh.obligations import LEGACY_REVISION_KEYS
+
+    cov = coverage(snap, [], attempted=set(), instruments=("ai-act",))
+    for old, new in zip(LEGACY_REVISION_KEYS,
+                        ("almanac_version", "almanac_sha256"), strict=True):
+        assert old in cov, f"the renderer still reads {old}"
+        assert cov[old] == cov[new], "and the two must not drift"

@@ -1,4 +1,4 @@
-"""`stem demo` is the headline, so it is tested like one.
+"""`thresh demo` is the headline, so it is tested like one.
 
 The claim is not that a demo exists. It is that two commands on a machine with
 no API key, no target and no configuration produce a MEASURED result -- one with
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from sunflower_stem.demo import DEMO_CAPABILITIES, _ratio, run
+from sunflower_thresh.demo import DEMO_CAPABILITIES, _ratio, run
 
 
 @pytest.fixture
@@ -30,7 +30,7 @@ def test_the_demo_runs_with_no_key_and_no_configuration(demo):
 def test_every_built_in_case_appears(demo):
     """A case that silently stopped being dispatched would shrink the library
     without shrinking any number a reader sees."""
-    from sunflower_stem.tools.chat import BUILTIN_CHAT_CASES
+    from sunflower_thresh.tools.chat import BUILTIN_CHAT_CASES
 
     out = demo()
     for cid in BUILTIN_CHAT_CASES:

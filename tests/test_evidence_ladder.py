@@ -2,7 +2,7 @@
 
 WHY THIS IS THE FIRST TEST IN THE PACKAGE.
 
-The whole claim stem makes about itself is that it tells you how good the proof
+The whole claim thresh makes about itself is that it tells you how good the proof
 is. That claim rests on one comparison inside `OracleLadder.evaluate`, and if
 that comparison is ever reversed the tool keeps working, keeps producing
 findings, and silently labels every one of them with the weakest evidence that
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from sunflower_stem.oracles import (
+from sunflower_thresh.oracles import (
     CanaryOracle,
     ChatObservation,
     OracleLadder,
@@ -24,7 +24,7 @@ from sunflower_stem.oracles import (
     RefusalOracle,
     StructuralOracle,
 )
-from sunflower_stem.schemas.finding import EvidenceStrength
+from sunflower_thresh.schemas.finding import EvidenceStrength
 
 #: The scale, written out. A table rather than a loop over the enum, because
 #: the point is to fail when somebody reorders the enum: a test that derives the

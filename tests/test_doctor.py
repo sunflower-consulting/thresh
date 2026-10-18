@@ -1,4 +1,4 @@
-"""`stem doctor` is the authoritative statement of what this install can prove.
+"""`thresh doctor` is the authoritative statement of what this install can prove.
 
 Tested because it is the one output a reader is told to trust over the README,
 and because its claims are the claims: if it says no key is needed while the
@@ -22,8 +22,8 @@ import importlib.util
 
 import pytest
 
-from sunflower_stem import doctor
-from sunflower_stem.doctor import (
+from sunflower_thresh import doctor
+from sunflower_thresh.doctor import (
     JUDGE_ABSENT,
     JUDGE_CONFIGURED,
     JUDGE_DEFAULT,
@@ -45,7 +45,7 @@ def test_the_readout_cannot_claim_a_rung_whose_module_is_absent():
     about what a reader can do next. This asserts the readout and the import
     system agree, in whichever direction they currently point, so it fails if
     either moves without the other."""
-    installed = importlib.util.find_spec("sunflower_stem.judge") is not None
+    installed = importlib.util.find_spec("sunflower_thresh.judge") is not None
     state, out = judge_state(), report()
 
     if installed:
@@ -145,7 +145,7 @@ def test_the_readout_names_every_rung_and_what_it_needs():
 def test_the_readout_states_the_redaction_version():
     """Which policy was in force is what makes two runs comparable, so it is a
     fact about the installation rather than a detail of a run."""
-    from sunflower_stem.redact import REDACTION_VERSION
+    from sunflower_thresh.redact import REDACTION_VERSION
 
     assert f"version {REDACTION_VERSION}" in report()
 
@@ -156,14 +156,14 @@ def test_the_readout_is_plain_text():
 
 
 def test_the_readout_opens_no_socket(monkeypatch):
-    """`stem doctor` is what a reader runs BEFORE trusting the tool, so it has to
+    """`thresh doctor` is what a reader runs BEFORE trusting the tool, so it has to
     work with no network at all. It must never be the command that discovers the
     judge endpoint is down -- that is a finding about the endpoint, reported by
     whatever actually calls it."""
     import socket
 
     def refuse(*_a, **_k):
-        raise AssertionError("stem doctor opened a socket")
+        raise AssertionError("thresh doctor opened a socket")
 
     monkeypatch.setattr(socket, "socket", refuse)
     monkeypatch.setattr(socket, "create_connection", refuse)
@@ -184,7 +184,7 @@ def test_a_rung_whose_availability_is_an_engagement_fact_is_not_called_available
     row = next(ln for ln in report().splitlines() if rung in ln)
     assert "available" not in row, f"{rung} cannot be claimed by this command"
     assert "per engagement" in row
-    assert "stem preflight" in report(), "and it has to say what does measure them"
+    assert "thresh preflight" in report(), "and it has to say what does measure them"
 
 
 def test_the_one_rung_that_needs_nothing_is_still_called_available():

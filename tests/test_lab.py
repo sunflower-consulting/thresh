@@ -2,7 +2,7 @@
 
 WHY THE LAB IS TESTED AT ALL, GIVEN IT IS THE THING BEING ATTACKED.
 
-Two of this package's claims rest on the lab rather than on stem's own code.
+Two of this package's claims rest on the lab rather than on thresh's own code.
 
 The first is that the quickstart is keyless. That is only true while the lab's
 scripted brain works, and the scripted brain is an option that defaults the
@@ -24,8 +24,8 @@ import urllib.request
 
 import pytest
 
-from sunflower_stem.lab import serve
-from sunflower_stem.lab.scoreboard import CANARY
+from sunflower_thresh.lab import serve
+from sunflower_thresh.lab.scoreboard import CANARY
 
 
 @pytest.fixture
@@ -87,7 +87,7 @@ def test_a_default_lab_selects_the_scripted_brain(lab_server):
     What does discriminate is the selection itself: deterministic picks
     `_StubBrain` and not picking it is what breaks the keyless quickstart.
     """
-    from sunflower_stem.lab import server as mod
+    from sunflower_thresh.lab import server as mod
 
     assert type(mod.Lab(safety="none", deterministic=True).brain) is mod._StubBrain
     # the control: the other branch exists and is reachable, so the line above
@@ -114,7 +114,7 @@ def test_a_benign_turn_and_an_attack_turn_do_not_agree(lab_server):
 
 
 def test_the_lab_scores_itself_so_a_run_can_be_checked_against_it(lab_server):
-    """The lab's own verdict is an independent check on stem's. A measurement
+    """The lab's own verdict is an independent check on thresh's. A measurement
     tool whose correctness rests on reading its own output is not measuring
     anything, and this is the second opinion."""
     base, _ = lab_server()
@@ -128,7 +128,7 @@ def test_the_lab_scores_itself_so_a_run_can_be_checked_against_it(lab_server):
 
 
 def test_every_challenge_carries_the_taxon_it_tests(lab_server):
-    """So a lab result and a stem finding can be compared by technique rather
+    """So a lab result and a thresh finding can be compared by technique rather
     than by eye."""
     base, _ = lab_server()
     for c in _get(base, "/api/Challenges")["data"]:

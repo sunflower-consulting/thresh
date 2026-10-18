@@ -34,7 +34,7 @@ import json
 
 import pytest
 
-from sunflower_stem.leads import (
+from sunflower_thresh.leads import (
     GARAK_EVALUATED,
     LEAD_CASE_PREFIX,
     PROBE_DECLINED,
@@ -49,7 +49,7 @@ from sunflower_stem.leads import (
     triage,
     write_triage,
 )
-from sunflower_stem.schemas.finding import FindingState
+from sunflower_thresh.schemas.finding import FindingState
 
 
 def _garak(tmp_path, *rows) -> str:
@@ -116,7 +116,7 @@ def test_no_triage_document_carries_a_finding_state(tmp_path):
 def test_the_leads_directory_is_excluded_from_consolidation_in_code():
     """Not by convention and not by a path check at the call site: a garak hit must
     not be able to reach a consolidated measurement even by accident."""
-    from sunflower_stem.consolidate import NEVER_READ
+    from sunflower_thresh.consolidate import NEVER_READ
 
     assert "leads" in NEVER_READ
 
@@ -238,7 +238,7 @@ def test_every_mapping_names_a_technique_THAT_EXISTS():
 
     Shape checks cannot catch this -- all seven were shaped exactly like technique
     ids. Only membership can."""
-    from sunflower_stem.obligations import known_taxa, load_snapshot
+    from sunflower_thresh.obligations import known_taxa, load_snapshot
 
     vocabulary = known_taxa(load_snapshot())
     unknown = {p: t for p, t in PROBE_TAXA.items() if t not in vocabulary}

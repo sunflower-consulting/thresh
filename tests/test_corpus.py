@@ -28,8 +28,8 @@ from pathlib import Path
 import pytest
 from tests.paths import CORPUS
 
-from sunflower_stem.cli import main as _run_cli
-from sunflower_stem.corpus import (
+from sunflower_thresh.cli import main as _run_cli
+from sunflower_thresh.corpus import (
     CANARY_PLACEHOLDERS,
     HARMFUL_RUBRIC,
     PLACEHOLDER_RE,
@@ -367,7 +367,7 @@ def test_every_judge_rubric_the_corpus_names_is_calibrated_or_listed():
     the one place neither could see the other."""
     import yaml
 
-    from sunflower_stem.judge import load_rubrics
+    from sunflower_thresh.judge import load_rubrics
 
     corpus_rubrics = yaml.safe_load((CORPUS / "rubrics/default.yaml").read_text())
     named = {n for n, body in corpus_rubrics.items()
@@ -437,15 +437,23 @@ def test_the_new_corpus_variable_is_read_before_the_legacy_one():
     """Both names work, because an operator with the old one exported will not be
     told their corpus vanished. The new one wins where both are set, so moving over
     is one export and not a hunt for which of the two took effect."""
-    both = {"STEM_CORPUS": "/new", "HARNESS_CORPUS": "/old"}
+    both = {"THRESH_CORPUS": "/new", "STEM_CORPUS": "/renamed",
+            "HARNESS_CORPUS": "/old"}
     assert corpus_root_from_env(both) == "/new"
+    # Every old name still resolves. There are two: the private engine this was
+    # extracted from, and what this package was called before it became thresh. An
+    # operator who exported either would otherwise meet a refusal naming only the
+    # variable they did not set.
+    assert corpus_root_from_env({"STEM_CORPUS": "/renamed"}) == "/renamed"
     assert corpus_root_from_env({"HARNESS_CORPUS": "/old"}) == "/old"
-    assert corpus_root_from_env({"STEM_CORPUS": "   "}) == "", "blank is not a path"
+    assert corpus_root_from_env({"STEM_CORPUS": "/renamed",
+                                 "HARNESS_CORPUS": "/old"}) == "/renamed"
+    assert corpus_root_from_env({"THRESH_CORPUS": "   "}) == "", "blank is not a path"
     assert corpus_root_from_env({}) == ""
 
 
 def _corpus_cli(tmp_path, *argv, extra=None):
-    """`stem corpus` over a one-case library, through the real parser."""
+    """`thresh corpus` over a one-case library, through the real parser."""
     cases = tmp_path / "cases"
     cases.mkdir(exist_ok=True)
     rubrics = tmp_path / "rubrics"
@@ -469,7 +477,7 @@ def test_the_command_names_the_placeholder_nobody_bound(tmp_path, capsys, monkey
     """A count alone sends an operator reading 244 case files to find out which
     binding is missing. Naming them is the difference between a one-line fix and an
     afternoon, and the list is what a bindings file gets written from."""
-    monkeypatch.delenv("STEM_CORPUS", raising=False)
+    monkeypatch.delenv("THRESH_CORPUS", raising=False)
     monkeypatch.delenv("HARNESS_CORPUS", raising=False)
     assert _corpus_cli(tmp_path) == 0
     out = capsys.readouterr().out
@@ -482,7 +490,7 @@ def test_the_command_refuses_a_short_library_rather_than_reporting_a_smaller_one
         tmp_path, capsys, monkeypatch):
     """The refusal has to survive the trip through the CLI, which is where an
     engagement meets it. A non-zero exit is the half that matters to a script."""
-    monkeypatch.delenv("STEM_CORPUS", raising=False)
+    monkeypatch.delenv("THRESH_CORPUS", raising=False)
     monkeypatch.delenv("HARNESS_CORPUS", raising=False)
     (tmp_path / "cases").mkdir()
     (tmp_path / "cases" / "bad.yaml").write_text("id: B-1\nfuture_field: 1\n")
@@ -494,10 +502,10 @@ def test_the_command_refuses_a_short_library_rather_than_reporting_a_smaller_one
 def test_the_command_says_where_to_point_it_when_nothing_is_configured(
         tmp_path, capsys, monkeypatch):
     """Exit 2 with the variable's name, not a traceback and not an empty report."""
-    monkeypatch.delenv("STEM_CORPUS", raising=False)
+    monkeypatch.delenv("THRESH_CORPUS", raising=False)
     monkeypatch.delenv("HARNESS_CORPUS", raising=False)
     assert _run_cli(["corpus"]) == 2
-    assert "STEM_CORPUS" in capsys.readouterr().err
+    assert "THRESH_CORPUS" in capsys.readouterr().err
 
 
 def test_the_command_says_why_a_case_was_left_out_and_not_only_how_many(
@@ -506,7 +514,7 @@ def test_the_command_says_why_a_case_was_left_out_and_not_only_how_many(
     A case held back for being a draft and one held back because this engine cannot
     express its rubric are different facts, and the second is a gap in the tool
     rather than a decision about the library."""
-    monkeypatch.delenv("STEM_CORPUS", raising=False)
+    monkeypatch.delenv("THRESH_CORPUS", raising=False)
     monkeypatch.delenv("HARNESS_CORPUS", raising=False)
     assert _corpus_cli(tmp_path, extra={
         "d.yaml": "id: D-1\ncategory: injection/direct\ntitle: t\n"
@@ -525,7 +533,7 @@ def test_the_command_separates_a_declared_control_from_a_missing_one(
     cover - and a `seeded` control, where the corpus says the control is a re-plant
     an operator does by hand, is a different fact from nobody having written one.
     Collapsing the two is the readout defect this tool exists to catch elsewhere."""
-    monkeypatch.delenv("STEM_CORPUS", raising=False)
+    monkeypatch.delenv("THRESH_CORPUS", raising=False)
     monkeypatch.delenv("HARNESS_CORPUS", raising=False)
     body = ("category: injection/direct\ntitle: t\ngoal: a goal long enough\n"
             "owasp: LLM01\nmethodology_phase: '03'\nturns: ['x']\n"
@@ -547,6 +555,6 @@ def test_every_corpus_case_without_a_matched_control_says_why(capsys, monkeypatc
     bucket. That is a fact about the library rather than about this loader, and it
     is asserted because the day it stops being true a run would quietly produce
     findings that nothing can falsify."""
-    monkeypatch.setenv("STEM_CORPUS", str(CORPUS))
+    monkeypatch.setenv("THRESH_CORPUS", str(CORPUS))
     assert _run_cli(["corpus", "--collector"]) == 0
     assert "NOBODY WROTE ONE" not in capsys.readouterr().out

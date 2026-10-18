@@ -25,10 +25,10 @@ import pytest
 import yaml
 from tests.paths import DOC_ENGINE
 
-from sunflower_stem import runbundle
-from sunflower_stem.consolidate import NEVER_READ, collect
-from sunflower_stem.consolidate import write as consolidate
-from sunflower_stem.export import CASE_FIELDS, measurements, write_run
+from sunflower_thresh import runbundle
+from sunflower_thresh.consolidate import NEVER_READ, collect
+from sunflower_thresh.consolidate import write as consolidate
+from sunflower_thresh.export import CASE_FIELDS, measurements, write_run
 
 
 def _finding(case_id="INJ-D-0001", state="validated", **trials) -> dict:
@@ -254,8 +254,8 @@ def test_every_field_emitted_is_one_the_consumer_allows(tmp_path):
 
 def _mapping(run_id="r", **over) -> dict:
     """A control mapping shaped like `obligations.coverage()`'s output."""
-    doc = {"run_id": run_id, "trellis_version": "sha256:abcdef0123456789",
-           "trellis_sha256": "abcdef", "scope": {"instruments": ["x"],
+    doc = {"run_id": run_id, "almanac_version": "sha256:abcdef0123456789",
+           "almanac_sha256": "abcdef", "scope": {"instruments": ["x"],
                                                  "system_classes": []},
            "counts": {"tested": 1, "review-only": 1},
            "testable_total": 1, "testable_with_evidence": 1, "review_only_total": 1,
@@ -281,7 +281,7 @@ def test_a_run_writes_the_control_mapping_with_its_own_run_id(tmp_path):
     was ported from never emitted it, so every control mapping it wrote would have
     failed validation on a required key. The run's id wins over whatever the mapping
     document happened to carry."""
-    from sunflower_stem.export import CONTROL_MAPPING
+    from sunflower_thresh.export import CONTROL_MAPPING
 
     bundle = _bundle(tmp_path, "2026-10-18T09-00-00_run-a", quotable=True,
                      findings=[_finding()])
@@ -299,7 +299,7 @@ def test_a_run_writes_the_control_mapping_with_its_own_run_id(tmp_path):
 def test_a_run_with_no_obligation_lookup_writes_no_control_mapping(tmp_path):
     """An engagement that was never scoped against an obligation catalogue has no
     control mapping, which is a fact about the engagement rather than a failure."""
-    from sunflower_stem.export import CONTROL_MAPPING
+    from sunflower_thresh.export import CONTROL_MAPPING
 
     bundle = _bundle(tmp_path, "2026-10-18T09-00-00_run-a", quotable=True,
                      findings=[_finding()])
@@ -317,7 +317,7 @@ def test_the_control_mapping_is_consolidated_from_one_run_entire(tmp_path):
     -- `probed-clean` here and `not-probed` there are two statements about the same
     selection -- so stitching them from two runs would describe a page no run ever
     measured."""
-    from sunflower_stem.export import CONTROL_MAPPING
+    from sunflower_thresh.export import CONTROL_MAPPING
 
     eng = tmp_path / "engagement"
     eng.mkdir()
@@ -362,8 +362,8 @@ def _engagement(eng: Path, **ai_system) -> Path:
 
 
 def _run(tmp_path: Path, eng: Path, rid: str, findings, **kw) -> int:
-    """`stem export` over a bundle, through the real CLI."""
-    from sunflower_stem.cli import main
+    """`thresh export` over a bundle, through the real CLI."""
+    from sunflower_thresh.cli import main
 
     _bundle(tmp_path, rid, quotable=kw.pop("quotable", True), findings=findings)
     argv = ["export", rid, str(eng), "--runs-dir", str(tmp_path)]
@@ -377,7 +377,7 @@ def test_an_engagement_that_named_no_regimes_gets_no_control_mapping(tmp_path, c
     page of noise. A client reading duties they do not carry learns to skip the
     appendix, and the row that mattered goes with it. So nothing is written, and the
     readout says what to add."""
-    from sunflower_stem.export import CONTROL_MAPPING
+    from sunflower_thresh.export import CONTROL_MAPPING
 
     eng = _engagement(tmp_path / "eng")
     assert _run(tmp_path, eng, "2026-01-01T00-00-00_a", [_finding()]) == 0
@@ -395,7 +395,7 @@ def test_the_regimes_come_from_the_engagement_file_and_not_from_a_flag(tmp_path)
     frozen and hash-covered so a new field unverifies every inventory that exists,
     it is read at run time where this is needed at export time, and one run can
     honestly be reported against more than one scope."""
-    from sunflower_stem.export import CONTROL_MAPPING
+    from sunflower_thresh.export import CONTROL_MAPPING
 
     eng = _engagement(tmp_path / "eng", instruments=["dora"],
                       classes=["ict-third-party"], role="deployer")
@@ -421,7 +421,7 @@ def test_a_rejected_measurement_is_never_cited_as_evidence(tmp_path):
 
     What it must say instead is `probed-clean`: a technique bearing on it ran and
     nothing stood up. That is a result, and a better one for the client."""
-    from sunflower_stem.export import CONTROL_MAPPING
+    from sunflower_thresh.export import CONTROL_MAPPING
 
     eng = _engagement(tmp_path / "eng", instruments=["ai-act", "dora"],
                       classes=["annex-iii-high-risk"])
@@ -443,7 +443,7 @@ def test_a_rejected_measurement_is_never_cited_as_evidence(tmp_path):
 def test_a_validated_measurement_is_cited(tmp_path):
     """The other half, or the test above would pass on a mapping that cites
     nothing at all."""
-    from sunflower_stem.export import CONTROL_MAPPING
+    from sunflower_thresh.export import CONTROL_MAPPING
 
     eng = _engagement(tmp_path / "eng", instruments=["ai-act", "dora"],
                       classes=["annex-iii-high-risk"])
@@ -462,7 +462,7 @@ def test_a_technique_that_ran_clean_is_told_from_one_that_never_ran(tmp_path):
     """The pair the whole module exists to keep apart, end to end through the CLI.
     `attempted` is derived from every completed measurement and the citations from
     the subset a report would quote, so one bundle answers both questions."""
-    from sunflower_stem.export import CONTROL_MAPPING
+    from sunflower_thresh.export import CONTROL_MAPPING
 
     eng = _engagement(tmp_path / "eng", instruments=["ai-act"],
                       classes=["annex-iii-high-risk"])
@@ -485,7 +485,7 @@ def test_a_technique_that_ran_clean_is_told_from_one_that_never_ran(tmp_path):
 def test_the_run_that_measured_it_is_the_run_the_mapping_names(tmp_path):
     """The consuming schema requires `run_id` at the top level, and the engine this
     was ported from never emitted one."""
-    from sunflower_stem.export import CONTROL_MAPPING
+    from sunflower_thresh.export import CONTROL_MAPPING
 
     eng = _engagement(tmp_path / "eng", instruments=["dora"])
     assert _run(tmp_path, eng, "2026-01-01T00-00-00_a", [_finding()]) == 0
@@ -495,7 +495,7 @@ def test_the_run_that_measured_it_is_the_run_the_mapping_names(tmp_path):
 
 
 def test_the_mapping_can_be_declined_for_one_export(tmp_path):
-    from sunflower_stem.export import CONTROL_MAPPING
+    from sunflower_thresh.export import CONTROL_MAPPING
 
     eng = _engagement(tmp_path / "eng", instruments=["dora"])
     assert _run(tmp_path, eng, "2026-01-01T00-00-00_a", [_finding()],
@@ -518,8 +518,8 @@ def test_both_machine_files_reach_the_engagement_root(tmp_path, capsys):
     """What the seam is for. The measurements are per case from the newest quotable
     run that measured each; the mapping is one run entire, because its rows
     interlock."""
-    from sunflower_stem.cli import main
-    from sunflower_stem.export import CONTROL_MAPPING, MEASUREMENTS
+    from sunflower_thresh.cli import main
+    from sunflower_thresh.export import CONTROL_MAPPING, MEASUREMENTS
 
     eng = _engagement(tmp_path / "eng", instruments=["ai-act"],
                       classes=["annex-iii-high-risk"])
@@ -541,8 +541,8 @@ def test_the_control_mapping_satisfies_the_consumer_contract(tmp_path):
     """Structural, so it runs without the renderer's own validator installed:
     every key the schema requires is present, every status is in its closed enum,
     and the two combinations the schema refuses are absent."""
-    from sunflower_stem.cli import main
-    from sunflower_stem.export import CONTROL_MAPPING
+    from sunflower_thresh.cli import main
+    from sunflower_thresh.export import CONTROL_MAPPING
 
     schema = json.loads(
         (DOC_ENGINE / "schema/control-mapping.schema.json").read_text())
@@ -576,8 +576,8 @@ def test_the_control_mapping_passes_the_renderers_own_validator(tmp_path):
     """The structural test above states the rules in this repository's words. This
     one hands the file to the renderer's actual validator, so the two cannot drift."""
     jsonschema = pytest.importorskip("jsonschema")
-    from sunflower_stem.cli import main
-    from sunflower_stem.export import CONTROL_MAPPING
+    from sunflower_thresh.cli import main
+    from sunflower_thresh.export import CONTROL_MAPPING
 
     schema = json.loads(
         (DOC_ENGINE / "schema/control-mapping.schema.json").read_text())
@@ -597,7 +597,7 @@ def test_a_re_export_without_a_mapping_removes_the_one_it_had(tmp_path):
     """Caught in review. Removing the engagement's regulatory scope, or passing
     --no-control-mapping, left the previous generated mapping in place for
     `consolidate` to pick up while the CLI reported that none was written."""
-    from sunflower_stem.export import CONTROL_MAPPING
+    from sunflower_thresh.export import CONTROL_MAPPING
 
     bundle = _bundle(tmp_path, "2026-10-18T09-00-00_run-a", quotable=True,
                      findings=[_finding()])
@@ -617,7 +617,7 @@ def test_a_revoked_mapping_does_not_stay_in_the_deliverable(tmp_path):
     """Caught in review. Marking the only source run not quotable left its
     previously consolidated obligations published at the engagement root, because
     consolidation only ever wrote and never removed."""
-    from sunflower_stem.export import CONTROL_MAPPING
+    from sunflower_thresh.export import CONTROL_MAPPING
 
     eng = tmp_path / "engagement"
     eng.mkdir()

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from sunflower_stem.calibrate import (
+from sunflower_thresh.calibrate import (
     CALIBRATED,
     HARDENED,
     INVERTED,
@@ -33,8 +33,8 @@ from sunflower_stem.calibrate import (
     mock_judge,
     rehearse,
 )
-from sunflower_stem.cli import main
-from sunflower_stem.judge import Rubric, load_rubrics
+from sunflower_thresh.cli import main
+from sunflower_thresh.judge import Rubric, load_rubrics
 
 
 @pytest.fixture(scope="module")

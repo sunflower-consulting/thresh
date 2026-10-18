@@ -25,9 +25,9 @@ from pathlib import Path
 import pytest
 from tests.paths import CORPUS
 
-from sunflower_stem.collector import CALLBACK_CAPABILITY, CallbackCollector
-from sunflower_stem.policy.decision import DenyReason
-from sunflower_stem.preflight import (
+from sunflower_thresh.collector import CALLBACK_CAPABILITY, CallbackCollector
+from sunflower_thresh.policy.decision import DenyReason
+from sunflower_thresh.preflight import (
     BASELINE_TRIALS,
     CHAT_TOOL,
     PREDICTS,
@@ -42,7 +42,7 @@ from sunflower_stem.preflight import (
     render,
     unpredicted_denials,
 )
-from sunflower_stem.schemas.target import AuthorizationRecord, TargetInventory
+from sunflower_thresh.schemas.target import AuthorizationRecord, TargetInventory
 
 needs_corpus = pytest.mark.skipif(
     not (CORPUS / "cases").is_dir(),
@@ -172,8 +172,8 @@ def test_a_lapsed_authorization_stops_the_run_and_the_gate_agrees():
     preflight this was ported from read `reference` and never asked -- so an
     engagement whose authorization ran out overnight passed its morning preflight
     and then had every request refused, after the client had been told."""
-    from sunflower_stem.policy.decision import ActionClass, ToolRequest, target_ref
-    from sunflower_stem.policy.engine import PolicyEngine
+    from sunflower_thresh.policy.decision import ActionClass, ToolRequest, target_ref
+    from sunflower_thresh.policy.engine import PolicyEngine
 
     yesterday = date.today() - timedelta(days=1)
     inv = _inv(authorization=_auth(expires_on=yesterday))
@@ -315,7 +315,7 @@ def test_the_fixtures_this_package_ships_name_tools_that_exist():
     cannot run a chat case, in a package whose whole subject is chat cases."""
     from tests.conftest import CHAT_TOOLS as FIXTURE_TOOLS
 
-    from sunflower_stem.demo import CHAT_TOOLS as DEMO_TOOLS
+    from sunflower_thresh.demo import CHAT_TOOLS as DEMO_TOOLS
 
     for label, tools in (("demo", DEMO_TOOLS), ("conftest", FIXTURE_TOOLS)):
         row = _row(_pf(inv=_inv(allowed_tools=tuple(tools))).run(), "tool names")
@@ -378,7 +378,7 @@ def test_the_baseline_trial_count_is_the_one_the_sweep_actually_sends():
     """Not `max(case.control_trials)`, which is what the ported formula used.
     `sweep_builtins` builds `BaselineArm(turns, trials or 10)`, so it is the run's
     override or a hardcoded ten, and the two disagree for any ordinary selection."""
-    source = Path(__import__("sunflower_stem.sweep", fromlist=["x"]).__file__).read_text()
+    source = Path(__import__("sunflower_thresh.sweep", fromlist=["x"]).__file__).read_text()
     assert f"trials or {BASELINE_TRIALS}" in source, (
         "the sweep's baseline trial count changed and this estimate did not")
 
@@ -417,7 +417,7 @@ def test_a_trials_override_that_lifts_the_consumption_cap_is_refused():
     ten trials plus ten controls against a client's assistant is a load test nobody
     signed for. A sweep-level override replaces the case's figure outright, so it
     lifts the cap on exactly the cases it was written for."""
-    from sunflower_stem.preflight import CONSUMPTION_TRIALS, EXPENSIVE_RUNGS
+    from sunflower_thresh.preflight import CONSUMPTION_TRIALS, EXPENSIVE_RUNGS
 
     class _Costly:
         id = "LOAD-1"
@@ -692,7 +692,7 @@ def test_the_collector_is_worth_three_cases_and_not_thirty_four():
     request actually arriving. Reporting the first number would overstate the cost of
     an unreachable collector by an order of magnitude -- in the direction this tool
     exists to stop other tools going."""
-    from sunflower_stem.corpus import load_chat_cases, resolve_bindings
+    from sunflower_thresh.corpus import load_chat_cases, resolve_bindings
 
     inv = _inv(capabilities={"plant_content": True, "multi_turn_escalation": True,
                              CALLBACK_CAPABILITY: True},

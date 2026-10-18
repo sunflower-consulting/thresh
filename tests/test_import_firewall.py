@@ -1,4 +1,4 @@
-"""Nothing in `sunflower_stem` may import anything outside its allowlist.
+"""Nothing in `sunflower_thresh` may import anything outside its allowlist.
 
 THE FAILURE THIS EXISTS TO STOP.
 
@@ -20,12 +20,12 @@ import ast
 import pathlib
 import sys
 
-PACKAGE = "sunflower_stem"
+PACKAGE = "sunflower_thresh"
 SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / PACKAGE
 
 #: Third-party distributions this package is allowed to require. Keep this
 #: short and make additions argue for themselves in the diff: every entry is a
-#: thing a user must install before `stem demo` can run, and the two-command
+#: thing a user must install before `thresh demo` can run, and the two-command
 #: quickstart is the single most valuable property this package has.
 THIRD_PARTY = frozenset({"pydantic", "yaml"})
 

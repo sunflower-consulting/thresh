@@ -45,14 +45,14 @@ jobs:
           python-version: "3.12"
       - run: pip install build && python -m build
       - run: pip install dist/*.whl
-      - run: stem --version
-      - run: stem doctor
-      # The headline is `stem demo`, so CI runs the command a reader types
+      - run: thresh --version
+      - run: thresh doctor
+      # The headline is `thresh demo`, so CI runs the command a reader types
       # first and asserts the two things the output must contain: a measured
       # row, and a case reported as not probed rather than as a zero.
       - name: the quickstart produces a measured result with no key
         run: |
-          stem demo | tee /tmp/demo.txt
+          thresh demo | tee /tmp/demo.txt
           grep -q "cases considered" /tmp/demo.txt
           grep -q "not probed" /tmp/demo.txt
           grep -q "matched" /tmp/demo.txt
@@ -65,7 +65,7 @@ jobs:
       # having the judge silently find nothing.
       - name: the installed wheel carries the rubric library
         run: |
-          stem judge | tee /tmp/judge.txt
+          thresh judge | tee /tmp/judge.txt
           grep -q "WITHHELD" /tmp/judge.txt
           if grep -qE "rubric library: +0 " /tmp/judge.txt; then
             echo "the wheel shipped no rubrics" >&2
@@ -80,14 +80,14 @@ jobs:
       # lower a threshold that was never the problem.
       - name: the calibration detector can tell the three failures apart
         run: |
-          stem calibrate | tee /tmp/cal.txt
+          thresh calibrate | tee /tmp/cal.txt
           grep -q "the detector behaves" /tmp/cal.txt
 
       # The lab is the target the quickstart attacks, so "it starts and answers"
       # is part of the claim rather than an implementation detail.
       - name: the bundled lab serves with no model and no key
         run: |
-          stem lab --port 5005 &
+          thresh lab --port 5005 &
           for i in $(seq 1 40); do
             curl -fsS http://127.0.0.1:5005/health >/dev/null 2>&1 && break
             sleep 0.25

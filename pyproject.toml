@@ -1,5 +1,5 @@
 [project]
-name = "sunflower-stem"
+name = "sunflower-thresh"
 version = "0.1.0.dev0"
 description = "Measure whether an attack on an LLM application actually worked, against a control, proved on a channel the target does not control."
 readme = "README.md"
@@ -29,11 +29,11 @@ dev = [
 ]
 
 [project.scripts]
-stem = "sunflower_stem.cli:main"
+thresh = "sunflower_thresh.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/sunflower-consulting/stem"
-Source = "https://github.com/sunflower-consulting/stem"
+Homepage = "https://github.com/sunflower-consulting/thresh"
+Source = "https://github.com/sunflower-consulting/thresh"
 
 [build-system]
 requires = ["setuptools>=77"]
@@ -50,7 +50,7 @@ where = ["src"]
 # built wheel on a clean machine, which is what makes this assertable rather than
 # assumed.
 [tool.setuptools.package-data]
-sunflower_stem = ["rubrics/*.yaml", "trellis/*.yaml"]
+sunflower_thresh = ["rubrics/*.yaml", "almanac/*.yaml"]
 
 [tool.pytest.ini_options]
 # `src` for the package, `.` so `tests.paths` imports whatever pytest was launched
@@ -78,4 +78,4 @@ ignore = ["SIM103"]
 # branch structure or its shebang to satisfy a linter would make the two drift
 # for no behavioural gain, and a benchmark target that quietly stopped being the
 # same target is the one change here that cannot be noticed from a result.
-"src/sunflower_stem/lab/*" = ["SIM102", "EXE001"]
+"src/sunflower_thresh/lab/*" = ["SIM102", "EXE001"]

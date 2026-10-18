@@ -18,9 +18,9 @@ from datetime import date
 
 import pytest
 
-from sunflower_stem.policy.decision import DenyReason, TargetRef, ToolRequest
-from sunflower_stem.policy.engine import PolicyEngine
-from sunflower_stem.schemas.target import ActionClass
+from sunflower_thresh.policy.decision import DenyReason, TargetRef, ToolRequest
+from sunflower_thresh.policy.engine import PolicyEngine
+from sunflower_thresh.schemas.target import ActionClass
 
 LOOPBACK = TargetRef(ip="127.0.0.1")
 ELSEWHERE = TargetRef(ip="203.0.113.10")   # RFC 5737 documentation range
@@ -239,7 +239,7 @@ def test_a_field_the_scope_model_does_not_know_is_rejected():
     """
     from pydantic import ValidationError
 
-    from sunflower_stem.schemas.target import AuthorizationRecord
+    from sunflower_thresh.schemas.target import AuthorizationRecord
 
     with pytest.raises(ValidationError, match="extra"):
         ToolRequest(project="lab", tool="chat_say",

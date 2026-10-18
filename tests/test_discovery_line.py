@@ -2,7 +2,7 @@
 
 WHY THERE IS A LINE AT ALL.
 
-An adaptive attacker is the capability stem does not have and the one the
+An adaptive attacker is the capability thresh does not have and the one the
 comparable tools lead on, so it is going to be built. The hazard is not that it
 attacks: it is that it attacks DIFFERENTLY each turn. Ten trials of text that
 changes are not ten samples of one thing, and the control arm -- the benign twin
@@ -26,14 +26,14 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from sunflower_stem.tools.chat import (
+from sunflower_thresh.tools.chat import (
     AUTHORED,
     BUILTIN_CHAT_CASES,
     GENERATED,
     ChatCase,
     ChatTurn,
 )
-from sunflower_stem.validation_chat import validate_chat_case
+from sunflower_thresh.validation_chat import validate_chat_case
 
 
 def _case() -> ChatCase:
@@ -72,7 +72,7 @@ def test_the_measurement_path_refuses_generated_turns(monkeypatch):
         sent.append(1)
         raise AssertionError("a generated case reached the target")
 
-    monkeypatch.setattr("sunflower_stem.validation_chat._ChatRunner", explode)
+    monkeypatch.setattr("sunflower_thresh.validation_chat._ChatRunner", explode)
     finding, report = validate_chat_case(None, _case().as_generated(),
                                          target_ip="127.0.0.1")
     assert finding is None
@@ -135,7 +135,7 @@ def test_an_authored_case_still_reaches_the_runner(monkeypatch):
             built.append(1)
             raise RuntimeError("far enough: the origin check let this through")
 
-    monkeypatch.setattr("sunflower_stem.validation_chat._ChatRunner", _Watch)
+    monkeypatch.setattr("sunflower_thresh.validation_chat._ChatRunner", _Watch)
     with pytest.raises(RuntimeError, match="far enough"):
         validate_chat_case(None, _case(), target_ip="127.0.0.1")
     assert built == [1]
