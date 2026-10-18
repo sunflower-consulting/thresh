@@ -455,7 +455,19 @@ def test_a_validated_measurement_is_cited(tmp_path):
     tested = [r for r in doc["obligations"] if r["status"] == "tested"]
     assert tested
     assert all(hit["id"] in r["findings"] for r in tested)
-    assert doc["testable_with_evidence"] == len(tested)
+
+    # The figure counts duties that BIND. Both obligations this technique is
+    # crosswalked to start on 2027-12-02, so they are cited as tested and are
+    # outside today's assurance figure -- which is why the evidence against them is
+    # counted separately rather than zeroed. It used to land in
+    # `testable_with_evidence`, which claimed assurance about a duty with no force.
+    binding = [r for r in tested if r["in_force"]]
+    assert doc["testable_with_evidence"] == len(binding)
+    future = doc["not_yet_in_force"]
+    assert future["with_evidence"] == len(tested) - len(binding) > 0
+    proven = [r for r in future["obligations"] if r["status"] == "tested"]
+    assert all(hit["id"] in r["findings"] for r in proven), (
+        "evidence against a duty that is coming is not lost")
 
 
 def test_a_technique_that_ran_clean_is_told_from_one_that_never_ran(tmp_path):

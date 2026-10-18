@@ -362,7 +362,8 @@ def snapshot_faults(snapshot: dict) -> list[str]:
 
 
 def unreachable_obligations(snapshot: dict, *, instruments=(),
-                            system_classes=()) -> dict[str, str]:
+                            system_classes=(), on=None,
+                            binding_only: bool = False) -> dict[str, str]:
     """{obligation id: its `verifiable`} for ones NO technique is crosswalked to.
 
     The ceiling on what any run can ever evidence, and it is not a run's fault.
@@ -379,7 +380,8 @@ def unreachable_obligations(snapshot: dict, *, instruments=(),
                       system_classes=system_classes)
     return {oid: str(o.get("verifiable") or "")
             for oid, o in sorted(scoped.items())
-            if o.get("verifiable") != "review" and oid not in reachable}
+            if o.get("verifiable") != "review" and oid not in reachable
+            and (not binding_only or in_force(o, on))}
 
 
 def for_taxon(snapshot: dict, taxon: str) -> list[str]:
@@ -436,6 +438,33 @@ def taxa_coverage(snapshot: dict, taxa) -> TaxonCoverage:
 
 
 # ----- the obligations a client carries ------------------------------------------
+
+def in_force(obligation: dict, on=None) -> bool:
+    """Does this duty bind yet, on the date the report speaks as of?
+
+    Measured on the current catalogue: THIRTY of sixty-six obligations do not apply
+    yet, most from 2027-12-02. Without this they were reported exactly like the ones
+    in force -- and the worst of those rows was not `not-probed` but `probed-clean`,
+    which a client reads as "we checked this and you are fine" about a duty with no
+    force for another year.
+
+    A missing or unparseable `applies_from` counts as IN FORCE, because the
+    alternative is excusing a duty from the report on the strength of a blank field.
+    """
+    import datetime
+
+    raw = str(obligation.get("applies_from") or "").strip()
+    if not raw:
+        return True
+    on = on or datetime.date.today()
+    if isinstance(on, datetime.datetime):
+        on = on.date()
+    try:
+        starts = datetime.date.fromisoformat(raw[:10])
+    except ValueError:
+        return True
+    return starts <= on
+
 
 def in_scope(snapshot: dict, *, instruments=(), system_classes=()) -> dict[str, dict]:
     """The obligations this client carries, which is what the denominator is over.
@@ -587,7 +616,7 @@ def attempted_taxa(findings: list[dict]) -> set[str]:
 def coverage(snapshot: dict, findings: list[dict], *, attempted: set[str],
              skipped: dict[str, str] | None = None,
              instruments=(), system_classes=(),
-             run_id: str = "") -> dict[str, Any]:
+             run_id: str = "", on=None) -> dict[str, Any]:
     """The control mapping for one run.
 
     `attempted` is the set of taxa the run actually measured, and `skipped` is
@@ -653,12 +682,24 @@ def coverage(snapshot: dict, findings: list[dict], *, attempted: set[str],
                              + (f": {why[0]}" if why else ""))
         if o.get("verification") == "unconfirmed":
             row["citation_unconfirmed"] = True
+        # Whether it binds yet. On every row rather than only the future ones, so a
+        # reader never has to infer it from a date they did not check.
+        row["in_force"] = in_force(o, on)
+        if not row["in_force"] and row["status"] == "not-probed":
+            row["reason"] = (f"this duty does not apply until "
+                             f"{o.get('applies_from')}. "
+                             f"{row.get('reason', '')}").strip()
         rows.append(row)
 
     counts: dict[str, int] = {}
     for r in rows:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
-    testable = [r for r in rows if r["status"] != "review-only"]
+    # The assurance figure is over duties that BIND. A denominator including ones
+    # that start in a year makes "evidence for 3 of 7" the answer to a question
+    # nobody asked, and the numerator cannot grow to meet it.
+    binding = [r for r in rows if r["in_force"]]
+    testable = [r for r in binding if r["status"] != "review-only"]
+    future = [r for r in rows if not r["in_force"]]
 
     # Every technique the run touched OR reported a finding for, which is not the
     # same set: a hand-written finding can carry a taxon no case in the library has.
@@ -666,8 +707,12 @@ def coverage(snapshot: dict, findings: list[dict], *, attempted: set[str],
     taxa = taxa_coverage(snapshot, touched)
     rev, rev_fault = provenance(snapshot)
     faults = snapshot_faults(snapshot)
+    # Binding only, so "N of those M" refers to the same M as the figure above it.
+    # It said "4 of those 0" once the figure started excluding duties that do not
+    # bind yet, which is the kind of sentence a reader stops trusting the page over.
     unreachable = unreachable_obligations(
-        snapshot, instruments=instruments, system_classes=system_classes)
+        snapshot, instruments=instruments, system_classes=system_classes,
+        on=on, binding_only=True)
 
     out: dict[str, Any] = {
         "run_id": run_id,
@@ -690,7 +735,8 @@ def coverage(snapshot: dict, findings: list[dict], *, attempted: set[str],
         # covering both is the specific way this appendix would mislead.
         "testable_total": len(testable),
         "testable_with_evidence": sum(1 for r in testable if r["status"] == "tested"),
-        "review_only_total": counts.get("review-only", 0),
+        "review_only_total": sum(1 for r in binding
+                                 if r["status"] == "review-only"),
         "obligations": rows,
         # The new axis. `additionalProperties` is true on the consuming schema, so
         # this travels without a schema change -- and it has to travel, because a
@@ -702,6 +748,31 @@ def coverage(snapshot: dict, findings: list[dict], *, attempted: set[str],
             "techniques": taxa.as_rows(),
         },
     }
+    if future:
+        # Not dropped: a duty starting in fourteen months is worth preparing for,
+        # and a client told about it late has a worse problem than one told early.
+        # Reported APART, because folding it into the assurance figure claims a
+        # check that could not have been meaningful.
+        out["not_yet_in_force"] = {
+            "count": len(future),
+            # Evidence against a duty that does not bind yet is still evidence, and
+            # zeroing it hides real work: a client with a proven weakness in
+            # something that becomes a duty in December 2027 wants to know now. It
+            # is counted here rather than in the figure above, because the figure
+            # answers "what can you show today" and this answers "what is coming".
+            "with_evidence": sum(1 for r in future if r["status"] == "tested"),
+            "obligations": [{"obligation": r["obligation"],
+                             "applies_from": r.get("applies_from"),
+                             "verifiable": r.get("verifiable"),
+                             "status": r["status"],
+                             **({"findings": r["findings"]}
+                                if r.get("findings") else {})} for r in future],
+            "note": ("these are in scope and do not bind yet, so they are outside "
+                     "the coverage figure above. Measuring against them now is "
+                     "preparation rather than assurance -- and evidence found "
+                     "against one is still evidence, reported here so it is not "
+                     "lost in a figure it does not belong to"),
+        }
     if rev_fault:
         out["almanac_revision_claimed"] = rev
         out["almanac_provenance_fault"] = rev_fault
@@ -745,15 +816,47 @@ def render(cov: dict, *, title: str = "control mapping") -> str:
     evidenced = int(cov.get("testable_with_evidence") or 0)
     review = int(cov.get("review_only_total") or 0)
     lines.append("")
-    lines.append(f"  {ts.name('obligations')}")
+    lines.append(f"  {ts.name('obligations')}"
+                 + ts.muted("  (every row, including ones that do not bind yet)"))
     for status in STATUSES:
         n = counts.get(status, 0)
         paint = ts.good if status == "tested" else (
             ts.muted if status == "review-only" else ts.warn)
         lines.append(f"    {paint(f'{n:4}')}  {status}")
-    summary = (f"evidence for {evidenced} of {testable} that admit test evidence; "
-               f"{review} review-only, which no run can speak to")
+    if testable:
+        summary = (f"evidence for {evidenced} of {testable} that admit test "
+                   f"evidence AND bind today; {review} review-only, which no run "
+                   f"can speak to")
+    else:
+        summary = (f"nothing in this scope both admits test evidence and binds "
+                   f"today; {review} review-only, which no run can speak to")
     lines.append(f"  {ts.muted(summary)}")
+
+    future = cov.get("not_yet_in_force") or {}
+    if future:
+        lines.append("")
+        proven = int(future.get("with_evidence") or 0)
+        lines.append("  " + ts.warn(
+            f"{future['count']} obligation(s) in scope DO NOT BIND YET, and are "
+            f"outside the figure above"))
+        if proven:
+            lines.append("  " + ts.bad(
+                f"{proven} of them already "
+                f"{'has' if proven == 1 else 'have'} evidence against "
+                f"{'it' if proven == 1 else 'them'}. Not a finding about today's "
+                f"compliance, and worth acting on before the date"))
+        soonest = sorted(future.get("obligations") or (),
+                         key=lambda r: (r.get("status") != "tested",
+                                        str(r.get("applies_from") or "")))
+        for row in soonest[:6]:
+            mark = ts.bad(" evidence") if row.get("status") == "tested" else ""
+            lines.append(f"    {row.get('applies_from')}  {row['obligation']}"
+                         f"  {ts.muted(str(row.get('verifiable') or ''))}{mark}")
+        if len(soonest) > 6:
+            lines.append(f"    {ts.muted(f'+{len(soonest) - 6} more')}")
+        lines.append("  " + ts.muted(
+            "measuring against these now is preparation rather than assurance, and "
+            "a client told late about a duty has the worse problem"))
 
     gap = cov.get("unreachable_by_any_technique") or {}
     if gap:

@@ -572,3 +572,96 @@ def test_the_revision_is_emitted_under_the_renderers_own_key_too(snap):
                         ("almanac_version", "almanac_sha256"), strict=True):
         assert old in cov, f"the renderer still reads {old}"
         assert cov[old] == cov[new], "and the two must not drift"
+
+
+# --- a duty that does not bind yet is not a duty you failed ----------------------
+
+def test_a_duty_that_does_not_bind_yet_is_outside_the_assurance_figure(snap):
+    """Measured: THIRTY of sixty-six obligations do not apply yet, most from
+    2027-12-02 after the Digital Omnibus moved them. They were reported exactly like
+    the ones in force, and the worst of those rows was not `not-probed` but
+    `probed-clean` -- which a client reads as "we checked this and you are fine"
+    about a duty with no force for another year.
+
+    For an Annex III high-risk system today that is 21 of 22 in scope, so the honest
+    headline is that nothing measurable binds yet and everything measured is
+    preparation.
+    """
+    from sunflower_thresh.obligations import in_force
+
+    cov = coverage(snap, [], attempted={"jailbreak-crescendo"},
+                   instruments=("ai-act",),
+                   system_classes=("annex-iii-high-risk",))
+    future = cov["not_yet_in_force"]
+    assert future["count"] >= 15, future["count"]
+    assert "preparation rather than assurance" in future["note"]
+
+    rows = {r["obligation"]: r for r in cov["obligations"]}
+    # Every row says whether it binds, so a reader never infers it from a date.
+    assert all("in_force" in r for r in rows.values())
+    binding = [r for r in rows.values() if r["in_force"]]
+    assert cov["testable_total"] == sum(
+        1 for r in binding if r["status"] != "review-only")
+    assert cov["review_only_total"] == sum(
+        1 for r in binding if r["status"] == "review-only")
+
+    # And the one that read as assurance is marked.
+    art15 = rows["ai-act:Art.15(1)"]
+    assert art15["in_force"] is False
+    assert not in_force(snap["obligations"]["ai-act:Art.15(1)"])
+
+
+def test_the_report_can_speak_as_of_a_date(snap):
+    """A report rebuilt later has to describe the duties as they stood when it was
+    written, not as they stand now -- the same reason the dataset revision is cited.
+    """
+    import datetime
+
+    from sunflower_thresh.obligations import in_force
+
+    art15 = snap["obligations"]["ai-act:Art.15(1)"]
+    assert str(art15["applies_from"]) == "2027-12-02"
+    assert not in_force(art15, datetime.date(2026, 10, 19))
+    assert in_force(art15, datetime.date(2027, 12, 2)), "the day it starts, it binds"
+    assert in_force(art15, datetime.date(2028, 1, 1))
+
+    later = coverage(snap, [], attempted=set(), instruments=("ai-act",),
+                     system_classes=("annex-iii-high-risk",),
+                     on=datetime.date(2028, 1, 1))
+    assert "not_yet_in_force" not in later, "by then they all bind"
+    assert later["testable_total"] > 0
+
+
+def test_a_missing_or_unreadable_date_counts_as_binding():
+    """The alternative is excusing a duty from a report on the strength of a blank
+    field, which is the wrong direction to fail in."""
+    from sunflower_thresh.obligations import in_force
+
+    assert in_force({})
+    assert in_force({"applies_from": ""})
+    assert in_force({"applies_from": "not a date"})
+    assert in_force({"applies_from": None})
+
+
+def test_the_two_numbers_beside_each_other_count_the_same_set(snap):
+    """It said "4 of those 0" once the figure started excluding duties that do not
+    bind yet: the crosswalk-gap count was over every scoped obligation while the
+    figure was over the binding ones. A reader stops trusting a page over a sentence
+    like that."""
+    cov = coverage(snap, [], attempted=set(), instruments=("ai-act",),
+                   system_classes=("annex-iii-high-risk",))
+    gap = cov.get("unreachable_by_any_technique") or {"count": 0}
+    assert gap["count"] <= cov["testable_total"], (
+        f"{gap['count']} cannot be 'of those {cov['testable_total']}'")
+    text = render(cov)
+    assert "of those 0" not in text
+
+
+def test_a_scope_whose_duties_all_bind_reads_normally(snap):
+    """The ordinary path must not acquire a caveat it does not need."""
+    cov = coverage(snap, [], attempted=set(), instruments=("dora",),
+                   system_classes=("important-entity",))
+    assert "not_yet_in_force" not in cov
+    text = render(cov)
+    assert "DO NOT BIND YET" not in text
+    assert "bind today" in text

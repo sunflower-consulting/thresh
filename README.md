@@ -195,6 +195,12 @@ A run bundle holds every completed measurement, including the ones whose control
 Those count as techniques attempted, so the obligations bearing on them read `probed-clean`, which is a result.
 They are never cited as evidence that an obligation was tested.
 
+A duty that does not bind yet is reported apart from one you failed. Measured on the bundled catalogue: 30 of 66 obligations do not apply yet, most from 2027-12-02 after the Digital Omnibus moved them, and for an Annex III high-risk system today that is 21 of the 22 in scope.
+They used to be reported exactly like the ones in force, and the worst of those rows was not `not-probed` but `probed-clean` - which a client reads as "we checked this and you are fine" about a duty with no force for another year.
+So the coverage figure is over duties that bind today, every row says whether it binds, and the rest are listed separately with their dates.
+
+Evidence found against one of them is still counted, in its own number rather than the figure: a client with a proven weakness in something that becomes a duty in December 2027 wants to know now, and zeroing it to keep the arithmetic tidy would hide real work.
+
 The obligation catalogue is vendored rather than fetched, because a report must be rebuildable later from its own bundle.
 It is CC BY 4.0 rather than Apache-2.0; see LICENSE-DATA.
 The copy is verbatim and that is checkable rather than asserted: the file carries a digest over a canonical serialisation of its content, every load recomputes and verifies it, and a test pins the whole file's sha256 against the copy the report renderer holds.
