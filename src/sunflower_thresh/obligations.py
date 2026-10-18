@@ -74,7 +74,7 @@ DEFAULT_SNAPSHOT = Path(__file__).resolve().parent / "almanac" / "snapshot.yaml"
 #: nobody rebuilt a report. Then an id will not resolve and the fastest fix under
 #: deadline is to loosen something. This constant is what makes that a test failure
 #: here instead of a judgement call there.
-SNAPSHOT_SHA256 = "155dc291392c64a1376d3aef349e892238cbc6c655fa3c911a8dc22f2a417ecd"
+SNAPSHOT_SHA256 = "4adbb3b7776caa27aa4d4b26e363058e84892faa0bbac0f3c743cf13c68214f1"
 
 #: The two keys the report renderer declares, under the names it still uses. The
 #: catalogue was renamed from `trellis` to `almanac`; this package emits both pairs
@@ -207,18 +207,20 @@ def body_sha256(doc: dict) -> str:
 def cite_as(snapshot: dict) -> str:
     """What a report should name as the dataset revision it resolved against.
 
-    The snapshot's `generated_from` is not trustworthy for this and never has been.
-    The copy vendored here says `...-dirty`, the commit before it recorded the
-    literal string `working-tree`, and almanac's own test asserts only that the field
-    is truthy while its CI deliberately refuses to diff the file -- so nothing on
-    either side catches a revision that names a tree state no longer in existence.
-    Meanwhile the content IS identifiable: `body_sha256` is over a canonical
-    serialisation and is verified on load.
+    `generated_from` cannot be trusted blindly, and for the whole life of this
+    module it was wrong: the vendored copy said `...-dirty` and the commit before it
+    recorded the literal string `working-tree`, so every report cited a tree state
+    that no longer existed. almanac's own test asserts only that the field is truthy
+    and its CI deliberately refuses to diff the file, so nothing on either side
+    caught it. The catalogue has since been regenerated from a clean tree and the
+    copy here now names a real commit.
 
-    So a usable revision is cited as given, and an unusable one is replaced by the
-    digest, which is a real identity. The schema's own words for this field are that
-    "a report rebuilt later must cite what it cited then", and a citation to a dirty
-    tree at a commit cites nothing.
+    The check stays, because the next regeneration can be dirty again and nothing
+    upstream prevents it. A usable revision is cited as given; an unusable one is
+    replaced by `body_sha256`, which is over a canonical serialisation, verified on
+    load, and a real identity. The consuming schema's own words for this field are
+    that "a report rebuilt later must cite what it cited then", and a citation to a
+    dirty tree at a commit cites nothing.
     """
     rev, fault = provenance(snapshot)
     if not fault:
@@ -232,9 +234,9 @@ def provenance(snapshot: dict) -> tuple[str, str]:
     A vendored dataset exists so a report can be rebuilt from its own bundle, and a
     revision ending `-dirty` means the snapshot cannot be traced to any commit, so
     that promise does not hold for it. Reported rather than refused, because the
-    content can still be perfectly good -- measured on the copy shipped here, it is
-    byte-identical to what almanac's current HEAD produces, and only the label is
-    unreproducible.
+    content can still be perfectly good: when the copy here carried a dirty label it
+    was byte-identical to what almanac's HEAD produced, and only the label was
+    unreproducible. Refusing to load it would have been the wrong trade.
     """
     rev = str(snapshot.get("generated_from") or "")
     if not rev:

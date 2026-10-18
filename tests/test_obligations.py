@@ -383,28 +383,47 @@ def test_the_licence_for_the_vendored_data_is_published():
 
 # --- provenance -------------------------------------------------------------------
 
-def test_a_report_cites_something_that_exists(snap):
-    """`generated_from` is not trustworthy for this and never has been: the copy here
-    says `-dirty`, and the commit before it recorded the literal string
-    `working-tree`. The catalogue's own test asserts only that the field is truthy.
-    So an unusable revision is cited by digest, which is a real identity."""
+def test_the_vendored_snapshot_cites_a_revision_that_exists(snap):
+    """It did not, for the whole life of this module until now.
+
+    `generated_from` said `64579f63...-dirty`, and the commit before that recorded
+    the literal string `working-tree`, so every report cited a tree state that no
+    longer existed -- which `cite_as` correctly refused, falling back to the content
+    digest. The catalogue has since been regenerated from a clean tree, so the
+    fallback is no longer exercised by our own copy, and asserting that it still is
+    would mean shipping a file we know to be wrong to keep a test green.
+    """
     rev, fault = provenance(snap)
-    assert rev.endswith("-dirty"), "the vendored copy is the faulty case"
-    assert fault
-    assert cite_as(snap) == "sha256:" + snap["body_sha256"][:16]
+    assert not fault, f"the vendored copy should cite a real commit: {fault}"
+    assert len(rev) == 40 and all(c in "0123456789abcdef" for c in rev), rev
+    assert cite_as(snap) == rev, "and it is cited as given, not by digest"
+
+
+def test_an_untrustworthy_revision_is_still_refused_and_shown(snap):
+    """The fallback the vendored copy no longer needs, tested where it belongs: on a
+    snapshot that actually carries a bad revision, rather than on ours.
+
+    Both halves matter. A revision that names nothing must not be cited, because a
+    report rebuilt later has to be able to resolve what it cited -- and the claim
+    must still be SHOWN, or nobody learns the dataset needs regenerating.
+    """
+    for bad in ("64579f63ca235c8d19cdc8dfcab16cec7e1cd03c-dirty", "working-tree-dirty"):
+        doc = _mini(generated_from=bad)
+        rev, fault = provenance(doc)
+        assert rev == bad
+        assert "edited working tree" in fault
+        assert cite_as(doc) == "sha256:" + doc["body_sha256"][:16]
+
+        cov = coverage(doc, [], attempted=set(), instruments=("x",))
+        assert cov["almanac_version"].startswith("sha256:")
+        assert cov["almanac_revision_claimed"] == bad
+        assert "cited by digest" in render(cov)
 
     clean = _mini(generated_from="deadbeef")
     assert provenance(clean) == ("deadbeef", "")
     assert cite_as(clean) == "deadbeef"
-
-
-def test_the_untrustworthy_revision_is_still_shown_not_swallowed(snap):
-    cov = coverage(snap, [], attempted=set(), instruments=("ai-act",))
-    assert cov["almanac_version"].startswith("sha256:")
-    assert cov["almanac_revision_claimed"].endswith("-dirty")
-    assert "edited working tree" in cov["almanac_provenance_fault"]
-    text = render(cov)
-    assert "cited by digest" in text
+    assert "almanac_provenance_fault" not in coverage(
+        clean, [], attempted=set(), instruments=("x",))
 
 
 def test_a_snapshot_with_no_revision_at_all_says_so():

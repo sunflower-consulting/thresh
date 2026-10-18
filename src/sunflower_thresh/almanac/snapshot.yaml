@@ -4,7 +4,7 @@
 # edit here is invisible to the sources and fails `tests/test_bundle.py`,
 # which round-trips the two against each other in both directions.
 schema_version: 1
-generated_from: 64579f63ca235c8d19cdc8dfcab16cec7e1cd03c-dirty
+generated_from: 51d4259571cc7da387d8e2a8b7e8999c3f59a088
 body_sha256: e819773d6df4b16fc090b2f75098d9955ec47af28c1c22d239029396590d97bc
 obligations:
   ai-act:Art.10(1):
