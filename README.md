@@ -107,6 +107,7 @@ thresh lab          serve the bundled vulnerable application on loopback
 thresh doctor       report what this installation can and cannot prove
 thresh corpus       load an external case library and report what is reachable
 thresh preflight    check one engagement before it spends a message budget
+thresh classify     which regimes a system is in scope of, from the rules
 thresh obligations  what a run's results mean against a client's duties
 thresh leads        triage another tool's hits against the case library
 thresh diff         compare two runs: what closed, what is still there
@@ -137,6 +138,17 @@ Adding a refusal to the gate makes this command fail until it says what it will 
 
 It sends exactly one thing: an ordinary question, last, and only once everything answerable offline has passed. A scope check that fails stops the command before anything leaves the machine, because a preflight that probes a host the scope does not cover - even to find out whether it answers - is the one thing it must never do. `--mock` rehearses the whole path against a fake target, which is how an operator can see what "auth rejected" looks like before it happens in front of a client.
 `thresh calibrate` needs no endpoint and no GPU to be useful. With nothing configured it runs a dry pass against three constant judges - one that always says yes, one that always says no, and one that answers the question while leaving the number out - and the read-out has to report each of those as a different fault. That is the inverse of the usual success condition, and it is the point: a detector that cannot tell a judge that disagreed from one that never answered will send you to tune the wrong thing, and a live run cannot reveal that because a live run has no ground truth.
+
+`thresh classify` answers the question `thresh obligations` needs answered first, and that was being typed from memory.
+
+The scope is the denominator of the only coverage figure a report may state, so a wrong class produces no error - it produces a confident appendix over the wrong set of duties.
+The rules to decide it have been in the catalogue the whole time, under `tier`, and nothing read them: five branching questions, three independent ones, and thirteen classes, written by the same people who wrote the obligations.
+
+Three of those classes carry no obligation at all, and an empty mapping means something different for each - `minimal-risk` is the correct and complete answer, `annex-i-high-risk` is a gap in the catalogue rather than an absence of duty, and `needs-legal-review` is the rules declining to decide about a system that may well be high-risk.
+Rendering them alike is the same failure as `probed-clean` against `not-probed`, and worse, because the reader is being told what they owe.
+So a class that is a stop is never handed on as a scope, and the command exits non-zero rather than producing a denominator nobody should use.
+
+It is not legal advice, and the catalogue says so itself. These are reusable questions somebody still has to answer about a specific deployment.
 
 `thresh obligations` reports two axes that look like one and are not.
 Per obligation there are four states, and the pair that has to stay apart is `probed-clean` and `not-probed`: a client reading "no findings against Article 15(5)" when every case bearing on it was skipped for want of a seeding sink has been told something false by omission.
