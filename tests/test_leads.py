@@ -37,6 +37,7 @@ import pytest
 from sunflower_stem.leads import (
     GARAK_EVALUATED,
     LEAD_CASE_PREFIX,
+    PROBE_DECLINED,
     PROBE_TAXA,
     PROMPTFOO_VERSION,
     Lead,
@@ -224,10 +225,52 @@ def test_a_taxon_the_vocabulary_does_not_hold_is_dismissed_not_promoted():
     assert "vocabulary does not hold" in recs[0].reason
 
 
+def test_every_mapping_names_a_technique_THAT_EXISTS():
+    """THE test this table needed, and it is here because its absence cost something.
+
+    The table was first written with thirteen entries and SEVEN of them named
+    techniques that do not exist -- `jailbreak-dan`, `llm01-encoded-payload`,
+    `llm02-pii-disclosure` and four more, invented from memory instead of read from
+    the vocabulary. Nothing in the module was wrong: the vocabulary check at triage
+    dismissed every one of them correctly, which is how it was found. But a mapping
+    table of names that resolve to nothing is worse than an empty one, because each
+    entry reads like a judgement somebody made.
+
+    Shape checks cannot catch this -- all seven were shaped exactly like technique
+    ids. Only membership can."""
+    from sunflower_stem.obligations import known_taxa, load_snapshot
+
+    vocabulary = known_taxa(load_snapshot())
+    unknown = {p: t for p, t in PROBE_TAXA.items() if t not in vocabulary}
+    assert not unknown, (
+        f"these probes are mapped to techniques the vocabulary does not hold, so "
+        f"every lead they produce will be dismissed: {unknown}")
+
+
+def test_a_probe_is_mapped_or_declined_but_never_both():
+    """A decline is a judgement that there is nothing to map it to. Holding both
+    would mean the table disagrees with itself, and `taxon_for` reads the decline
+    first, so the mapping would be silently dead."""
+    assert not (set(PROBE_TAXA) & set(PROBE_DECLINED))
+
+
+@pytest.mark.parametrize("probe", sorted(PROBE_DECLINED))
+def test_a_deliberate_decline_carries_its_reason_into_the_dismissal(probe):
+    """The probes with no honest target are a decision, and a reader meeting the
+    dismissal should get the decision rather than "nobody has mapped this yet"."""
+    assert taxon_for(probe) == ""
+    assert len(PROBE_DECLINED[probe]) > 80, "a decline argues for itself"
+    recs = triage([Lead(source="promptfoo", probe=probe, flagged="f", row=1)],
+                  covered_by=lambda t: [])
+    assert recs[0].outcome is Outcome.DISMISSED
+    assert "deliberately unmapped" in recs[0].reason
+    assert PROBE_DECLINED[probe][:40] in recs[0].reason
+
+
 @pytest.mark.parametrize("probe,taxon", sorted(PROBE_TAXA.items()))
-def test_every_mapping_names_a_technique_shaped_like_the_vocabulary(probe, taxon):
-    """A typo here is a lead attributed to a technique that resolves to nothing, and
-    the dismissal would then blame the vocabulary rather than the mapping."""
+def test_every_mapping_is_shaped_like_a_technique_id(probe, taxon):
+    """Weaker than the membership test above and kept beside it: it is the check that
+    passed on all seven invented names, which is the point."""
     assert taxon == taxon.lower()
     assert " " not in taxon
     assert "-" in taxon, f"{probe} -> {taxon} is not shaped like a technique id"

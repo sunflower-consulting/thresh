@@ -251,7 +251,111 @@ def _build_parser() -> argparse.ArgumentParser:
                      help="print the instruments and system classes the catalogue "
                           "holds, with a count of obligations for each, and exit.")
     obl.set_defaults(func=_obligations)
+
+    lead = sub.add_parser(
+        "leads", help="triage another tool's hits against the case library",
+        description="Read a garak or promptfoo report and record every hit as one "
+                    "of three things: covered by a case that already exercises the "
+                    "technique, promoted to a draft for an author, or dismissed "
+                    "with the reason. NONE of it becomes a finding -- another "
+                    "tool's verdict says where to point a measurement, not that "
+                    "anything is true. Runs nothing and sends nothing.")
+    lead.add_argument("--garak", metavar="FILE", type=Path, action="append",
+                      default=[], help="a garak JSONL report; repeatable.")
+    lead.add_argument("--promptfoo", metavar="FILE", type=Path, action="append",
+                      default=[], help="a promptfoo results.json or .jsonl; "
+                                       "repeatable.")
+    lead.add_argument("--corpus", metavar="DIR", default="",
+                      help=f"the case library to check coverage against. Defaults "
+                           f"to ${CORPUS_ENV}. Without one every mapped lead is "
+                           f"promoted, which overstates how much is new.")
+    lead.add_argument("--out", metavar="FILE", type=Path,
+                      help="where to write the triage. Defaults to "
+                           "leads/triage.yaml under the current directory, which "
+                           "`stem consolidate` excludes in code.")
+    lead.add_argument("--allow-nothing", action="store_true",
+                      help="accept a report whose rows yield no lead. Refused by "
+                           "default: neither tool's format carries enough version "
+                           "information to check, so a reader that silently found "
+                           "nothing is indistinguishable from a format change.")
+    lead.set_defaults(func=_leads)
     return p
+
+
+def _leads(args: argparse.Namespace) -> int:
+    """Triage another tool's hits. Reads files, writes one; sends nothing."""
+    from sunflower_stem.leads import (
+        LeadError,
+        Outcome,
+        read_garak,
+        read_promptfoo,
+        triage,
+        write_triage,
+    )
+
+    if not (args.garak or args.promptfoo):
+        print("nothing to read. Pass --garak and/or --promptfoo with a report file.",
+              file=sys.stderr)
+        return 2
+
+    sources, leads = {}, []
+    for label, paths, reader in (("garak", args.garak, read_garak),
+                                 ("promptfoo", args.promptfoo, read_promptfoo)):
+        for path in paths:
+            try:
+                res = reader(path, allow_unreadable=args.allow_nothing)
+            except LeadError as exc:
+                print(str(exc), file=sys.stderr)
+                return 2
+            sources[f"{label}:{Path(path).name}"] = res
+            leads.extend(res.leads)
+
+    # The library decides `covered` against `promoted`, and without one every
+    # mapped lead looks new. That is the expensive direction -- authoring a case
+    # the library already has -- so it is stated rather than left implicit.
+    covered_by = {}
+    known_taxa = None
+    root = args.corpus or corpus_root_from_env()
+    if root:
+        from sunflower_stem.corpus import CorpusError, load_corpus
+
+        try:
+            corpus = load_corpus(root)
+        except CorpusError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        for cid, case in corpus.cases.items():
+            if case.taxon and case.selectable:
+                covered_by.setdefault(case.taxon, []).append(cid)
+    try:
+        from sunflower_stem.obligations import known_taxa as _known
+        from sunflower_stem.obligations import load_snapshot
+
+        known_taxa = _known(load_snapshot())
+    except Exception:  # noqa: BLE001 - no catalogue is not a reason to refuse leads
+        known_taxa = None
+
+    records = triage(leads, covered_by=covered_by.get, known_taxa=known_taxa)
+    out = write_triage(args.out or (Path("leads") / "triage.yaml"), records,
+                       sources=sources)
+
+    counts = {}
+    for r in records:
+        counts[r.outcome.value] = counts.get(r.outcome.value, 0) + 1
+    rows = sum(s.rows for s in sources.values())
+    print(f"read        {rows} row(s) from {len(sources)} report(s)")
+    print(f"leads       {len(records)}")
+    for outcome in Outcome:
+        print(f"  {outcome.value:9} {counts.get(outcome.value, 0)}")
+    if not root:
+        print("\nno corpus loaded, so nothing could be found already covered. "
+              f"Pass --corpus or set ${CORPUS_ENV}.")
+    print(f"\nwrote {out}")
+    print("None of it is a finding. A promoted case is a draft with no control arm "
+          "and no oracle,\nfor an author to accept or throw away.")
+    # Zero. A dismissed lead is a recorded outcome rather than a fault, and exiting
+    # non-zero for one would make the ordinary case look broken.
+    return 0
 
 
 def _demo(args: argparse.Namespace) -> int:

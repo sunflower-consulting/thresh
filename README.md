@@ -108,6 +108,7 @@ stem doctor       report what this installation can and cannot prove
 stem corpus       load an external case library and report what is reachable
 stem preflight    check one engagement before it spends a message budget
 stem obligations  what a run's results mean against a client's duties
+stem leads        triage another tool's hits against the case library
 stem judge        report the judge rung's configuration and its rubric library
 stem calibrate    check whether each judge rubric's threshold is calibrated
 stem export       write one run's numbers where a document generator reads them
@@ -134,6 +135,16 @@ Returning nothing for the last two alike is how a run's most differentiating out
 Measured against the bundled catalogue and a 244-case library: 82 techniques are mapped, 0 are declined, and 48 are unknown - roughly a fifth of a full run.
 All 48 are variants inside a family the catalogue already crosswalks, so inheriting a family's obligations would be one line of code; that line would have this tool inventing a regulatory judgement, which is the thing the catalogue's eight written declines exist to say you must not do.
 It names the neighbouring family so a human can decide, and claims nothing.
+
+`stem leads` is the join between rented breadth and owned proof.
+garak, promptfoo and PyRIT carry hundreds of probes and the multi-turn generators, maintained by NVIDIA and Microsoft for nothing, and reimplementing that would be foolish - but what they produce is a place to look.
+A tool that says "FAIL: jailbreak" has not measured anything against a control, on a channel the target does not own, inside an authorisation somebody signed.
+
+So each hit becomes exactly one of three records: covered by a case that already exercises the technique, promoted to a draft for an author, or dismissed with the reason written down.
+With a large library the first is the common outcome and is far cheaper than authoring, and the third is what makes it honest, because a lead quietly dropped is a scan somebody paid for whose result nobody can account for.
+
+A lead cannot become a finding, and that is structural rather than a convention: there is nowhere on a lead to put a state or a severity, the other tool's verdict survives only as a string in its own words, and `stem consolidate` excludes the leads directory in code.
+Neither tool's report format carries enough version information to check - garak's carries none at all, and its entry format has changed between releases - so a report whose rows yield no lead is refused rather than reported as a clean scan, naming the entry types and keys it actually saw.
 
 `stem export` writes two machine files per run, not one.
 The measurements are the rates; the control mapping is what those rates mean against the duties the client carries, and it is written whenever the engagement says which regimes those are.

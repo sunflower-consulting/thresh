@@ -204,20 +204,43 @@ class Triage:
 #: obligation crosswalk, to the wrong regulatory duty.
 PROBE_TAXA: dict[str, str] = {
     # garak probe modules, by the name its reports use for the family.
-    "dan": "jailbreak-dan",
-    "encoding": "llm01-encoded-payload",
+    "dan": "jailbreak-roleplay",
+    "encoding": "llm01-encoding-bypass",
     "promptinject": "llm01-direct-override",
     "latentinjection": "llm01-indirect-doc",
     "xss": "llm05-markdown-exfil",
-    "leakreplay": "llm02-training-data-echo",
     # promptfoo redteam plugin ids.
-    "harmful:privacy": "llm02-pii-disclosure",
-    "pii": "llm02-pii-disclosure",
-    "prompt-extraction": "llm07-system-prompt-extraction",
+    "harmful:privacy": "llm02-pii-in-context",
+    "pii": "llm02-pii-in-context",
+    "prompt-extraction": "llm07-system-prompt-verbatim",
     "indirect-prompt-injection": "llm01-indirect-doc",
     "bola": "llm06-tool-idor",
     "bfla": "llm06-tool-unapproved-send",
-    "excessive-agency": "llm06-unapproved-action",
+}
+
+#: Probes deliberately left unmapped, and why. An entry here is a decision; a probe
+#: in neither table is simply one nobody has looked at yet, and both are dismissed by
+#: name at triage. Written down because the reason is the useful part, exactly as the
+#: obligation catalogue does for its own eight declines.
+#:
+#: This table was first written with seven mappings whose technique names did not
+#: exist -- invented from memory rather than read from the vocabulary -- and the
+#: vocabulary check at triage caught every one. Two of the seven turned out to have
+#: no honest target at all, so they are here rather than guessed at, and the check is
+#: now a test over the whole table instead of something that fires per lead.
+PROBE_DECLINED: dict[str, str] = {
+    "excessive-agency": (
+        "promptfoo's plugin asks whether the model claims capabilities it does not "
+        "have. The vocabulary splits that across llm06-autonomous-action, "
+        "llm06-scope-creep and llm06-out-of-scope-tool, which are different "
+        "techniques with different controls, and picking one would attribute a "
+        "client's lead to a duty on the strength of a coin toss"),
+    "leakreplay": (
+        "garak's probe tests regurgitation of memorised training text. The "
+        "vocabulary has no training-data-extraction technique -- the nearest, "
+        "llm04-weight-extraction, is one the obligation catalogue explicitly "
+        "declines as unreachable by a black-box run -- so there is nothing to map "
+        "it to rather than a name nobody has chosen yet"),
 }
 
 
@@ -231,6 +254,8 @@ def taxon_for(probe: str) -> str:
     """
     probe = str(probe or "").strip()
     if not probe:
+        return ""
+    if probe in PROBE_DECLINED:
         return ""
     if probe in PROBE_TAXA:
         return PROBE_TAXA[probe]
@@ -514,11 +539,16 @@ def triage(leads: list[Lead], *, covered_by, known_taxa=None,
     minted = {str(i) for i in existing_ids}
     for lead in leads:
         if not lead.taxon:
+            declined = PROBE_DECLINED.get(lead.probe) or PROBE_DECLINED.get(
+                lead.probe.split(".", 1)[0])
             out.append(Triage(lead, Outcome.DISMISSED, reason=(
+                f"{lead.probe!r} is deliberately unmapped: {declined}"
+                if declined else
                 f"no technique is mapped to {lead.source} probe {lead.probe!r}. "
-                f"Add a line to PROBE_TAXA if it exercises one: nothing here guesses "
-                f"from the name, because attributing a lead to the wrong technique "
-                f"attributes it to the wrong regulatory duty")))
+                f"Add a line to PROBE_TAXA if it exercises one, or to PROBE_DECLINED "
+                f"with the reason if it does not: nothing here guesses from the "
+                f"name, because attributing a lead to the wrong technique attributes "
+                f"it to the wrong regulatory duty")))
             continue
         if known_taxa is not None and lead.taxon not in known_taxa:
             out.append(Triage(lead, Outcome.DISMISSED, reason=(
