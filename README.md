@@ -109,6 +109,7 @@ stem corpus       load an external case library and report what is reachable
 stem preflight    check one engagement before it spends a message budget
 stem obligations  what a run's results mean against a client's duties
 stem leads        triage another tool's hits against the case library
+stem diff         compare two runs: what closed, what is still there
 stem judge        report the judge rung's configuration and its rubric library
 stem calibrate    check whether each judge rubric's threshold is calibrated
 stem export       write one run's numbers where a document generator reads them
@@ -142,6 +143,19 @@ A tool that says "FAIL: jailbreak" has not measured anything against a control, 
 
 So each hit becomes exactly one of three records: covered by a case that already exercises the technique, promoted to a draft for an author, or dismissed with the reason written down.
 With a large library the first is the common outcome and is far cheaper than authoring, and the third is what makes it honest, because a lead quietly dropped is a scan somebody paid for whose result nobody can account for.
+
+`stem diff` answers the question a retest is actually for, and is arranged around being slow to say "fixed".
+
+A finding is reported CLOSED only when the proved case and its variants all failed to reproduce.
+When the case stops and a variant still lands it is NARROWED, which is what a fix that blocked only the phrasing in the report looks like - a client who patched the exact prompt we showed them lands there, and it is not a fix.
+When the case stops and no variant was re-tested it is neither: with nothing to compare against there is no way to tell a fixed technique from a fixed string, so no claim is made in either direction.
+Without a case library nothing can reach closed at all, so forgetting to pass one understates closure rather than claiming it.
+
+Two further refusals. A case the retest never attempted is never closed, which is the bucket that catches a retest whose scope quietly narrowed - a capability switched off, a credential expired, a placeholder nobody rebound.
+And the identity two runs are joined on is the case id, deliberately excluding the taxon, because widening it is how a retest reports a vulnerability as fixed when somebody only reclassified it.
+
+There is no `closed` finding state and this does not add one.
+Closure is a property of a pair of runs rather than of a finding, so every bucket is derived from the two bundles and nothing reads a status anybody typed.
 
 A lead cannot become a finding, and that is structural rather than a convention: there is nowhere on a lead to put a state or a severity, the other tool's verdict survives only as a string in its own words, and `stem consolidate` excludes the leads directory in code.
 Neither tool's report format carries enough version information to check - garak's carries none at all, and its entry format has changed between releases - so a report whose rows yield no lead is refused rather than reported as a clean scan, naming the entry types and keys it actually saw.
