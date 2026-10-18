@@ -248,7 +248,7 @@ class TargetInventory(BaseModel):
     #
     # On the inventory rather than as command-line flags, for the same reason
     # `auth_headers` is: these are engagement facts the operator establishes once and
-    # should not have to retype, `harness preflight` verifies them, and the run then
+    # should not have to retype, `thresh preflight` verifies them, and the run then
     # uses the thing preflight verified rather than something retyped at 9am. A flag
     # that has to be remembered is a flag that gets forgotten, and forgetting `--tls`
     # against a production endpoint means a plaintext request to a host that expects
@@ -264,7 +264,7 @@ class TargetInventory(BaseModel):
     chat_path: str = "/chat"
     #: Dotted path to the reply inside their JSON, e.g. `data.message.text`. Empty means
     #: the common shapes are tried. Getting this wrong does not raise -- it degrades to
-    #: "no reply found", which `harness preflight` reports as a FAIL rather than letting
+    #: "no reply found", which `thresh preflight` reports as a FAIL rather than letting
     #: every case score 0.00 against an assistant that is answering normally.
     reply_path: str = ""
     #: Default port. 443 when `tls` and nothing is set, else 80.

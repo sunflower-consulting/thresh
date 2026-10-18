@@ -295,6 +295,53 @@ class ScopeError(ValueError):
     """The scope document cannot be read, or is not one."""
 
 
+#: The transport keys the chat tools actually read, from `tools/conversation.py`.
+#: Named here so `transport_for` cannot drift from them silently: the docstring on
+#: `validate_chat_case` promised `verify` where the tools read `verify_tls`, and a
+#: caller who followed it left certificate verification on after asking for it off.
+TRANSPORT_KEYS = ("tls", "verify_tls", "path", "reply_path")
+
+
+def transport_for(inventory, *, verify: bool | None = None) -> dict:
+    """The `transport` dict a run needs, built from the signed scope.
+
+    The inventory has carried `tls`, `verify_tls`, `chat_path`, `reply_path` and
+    `chat_port` since it was written, with a comment saying they are there so "the
+    run then uses the thing preflight verified rather than something retyped at
+    9am" -- and nothing mapped them. Every caller hand-assembled the dict or passed
+    `{}`, which is how a run reaches a TLS endpoint over plain HTTP because somebody
+    forgot a flag.
+
+    The key names differ on purpose: the inventory calls it `chat_path` because an
+    engagement document may one day describe more than a chat endpoint, and the tool
+    reads `path`. Mapping them in one place is the whole point.
+
+    The port is deliberately absent; see the comment below.
+
+    `verify` overrides the inventory, for the one case that needs it -- an internal
+    CA or a self-signed staging certificate. It is an argument rather than a field
+    because it is a decision made at the moment of running, by somebody who then has
+    to write it in the report: a finding attributed to a host whose identity was not
+    checked is a weaker finding.
+    """
+    out = {
+        "tls": bool(getattr(inventory, "tls", False)),
+        "verify_tls": bool(getattr(inventory, "verify_tls", True)),
+        "path": str(getattr(inventory, "chat_path", "") or "/chat"),
+        "reply_path": str(getattr(inventory, "reply_path", "") or ""),
+    }
+    # NOT the port, and the omission is load-bearing. The transport dict is splatted
+    # into the tool args AFTER the run's own `port=`, so a port here silently
+    # overrides the one the caller passed -- which it did the first time I wrote
+    # this: the example ran against port 80 instead of the target it had just stood
+    # up, and the case degraded from `rejected` to `under_test` rather than failing
+    # loudly. The port belongs to the run; `inventory.port_for_chat()` is what a
+    # caller passes AS that argument.
+    if verify is not None:
+        out["verify_tls"] = bool(verify)
+    return {k: v for k, v in out.items() if k != "reply_path" or v}
+
+
 def load_inventory(path, *, env: dict | None = None):
     """A `TargetInventory` from a YAML scope document. The loader that was missing.
 

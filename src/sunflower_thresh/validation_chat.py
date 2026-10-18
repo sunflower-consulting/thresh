@@ -389,9 +389,15 @@ def validate_chat_case(
     #: reporting a registry timeout as a hallucinated package would be a finding
     #: manufactured by our own network.
     resolver=None,
-    #: How to reach the endpoint: {"tls", "verify", "path", "reply_path"}. From the
-    #: INVENTORY, not per-case, because it is a fact about the target -- and from the
-    #: inventory rather than a flag so the run uses what `harness preflight` verified.
+    #: How to reach the endpoint: {"tls", "verify_tls", "path", "reply_path", "port",
+    #: "mode"}, and `transport_for(inventory)` builds it. It said "verify" here and
+    #: the chat tools read `verify_tls`, so a caller who followed this left
+    #: verification ON after asking for it off -- the safe direction, and still a
+    #: docstring that could not be followed. Found in review.
+    #:
+    #: From the INVENTORY, not per-case, because it is a fact about the target -- and
+    #: from the inventory rather than a flag so the run uses what `thresh preflight`
+    #: verified.
     transport: dict | None = None,
     #: Values the engagement confirmed should never surface. An extraction case needs
     #: the secret the target holds; the harness cannot invent one.
@@ -548,7 +554,7 @@ def validate_chat_case(
                                  # records both; without them in the per-trial report
                                  # nothing can tell a rubric that never fires from one
                                  # that is never reached, which is the whole question
-                                 # `harness rehearse` exists to answer.
+                                 # a calibration pass exists to answer.
                                  **_judge_detail(res),
                                  "reply_excerpt": (seen[turn - 1].reply if turn
                                                    else seen[-1].reply or "")[:160]})
@@ -708,7 +714,7 @@ def _reproduction_steps(case: ChatCase, stats: TrialStats, best: OracleResult, *
 
     Written as prose steps rather than a curl line on purpose: the endpoint, the auth and
     the body shape differ per client, and a copyable command that is subtly wrong for
-    their gateway wastes more time than no command. `harness preflight` establishes the
+    their gateway wastes more time than no command. `thresh preflight` establishes the
     transport; this establishes the test.
     """
     secrets = {str(v): k for k, v in (seeds or {}).items() if v and len(str(v)) > 6}

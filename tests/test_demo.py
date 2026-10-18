@@ -190,3 +190,43 @@ def test_the_table_names_the_case_and_not_the_run(capsys):
     assert len(labels) == 6, f"expected six rows, got {labels}"
     for label in labels:
         assert label.startswith("chat-"), f"row labelled with a run id: {label}"
+
+
+def test_the_library_example_still_works(tmp_path):
+    """The example is documentation that answers "how do I drive this from a script",
+    and documentation that nobody runs becomes advice that no longer works.
+
+    It is the only pattern in the repository for a client-specific engagement:
+    `demo.py` builds its inventory in code and is wired to the bundled lab, which
+    makes it a smoke test rather than something to copy. This asserts the example's
+    six-object assembly -- inventory, evidence store, gate, context, selection,
+    bundle -- actually produces a run.
+    """
+    import runpy
+    import sys
+    from pathlib import Path
+
+    from sunflower_thresh import runbundle
+
+    examples = Path(__file__).resolve().parents[1] / "examples"
+    assert (examples / "scope.yaml").is_file(), "the example's scope travels with it"
+
+    out = tmp_path / "runs"
+    argv = sys.argv[:]
+    sys.argv = ["engagement.py", "--out", str(out), "--trials", "2"]
+    try:
+        runpy.run_path(str(examples / "engagement.py"), run_name="__main__")
+    except SystemExit as exit_:
+        assert exit_.code == 0, f"the example exited {exit_.code}"
+    finally:
+        sys.argv = argv
+
+    bundles = sorted(out.iterdir())
+    assert len(bundles) == 1, bundles
+    manifest, findings = runbundle.load(bundles[0])
+    assert manifest["run_id"] == bundles[0].name
+    assert manifest["quotable"] is False, "the bundled lab is not a client target"
+    assert findings, "the example has to actually measure something"
+    assert {f.get("state") for f in findings} <= {
+        "validated", "reproduced", "rejected", "confirmed", "observed",
+        "hypothesis", "under_test", "human_review", "duplicate"}

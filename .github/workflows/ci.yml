@@ -44,6 +44,25 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install build && python -m build
+      # One package in the wheel, and nothing else. A stale `build/` directory from
+      # before the package was renamed shipped the OLD package alongside the new
+      # one, and every other check passed: the install worked, the commands ran,
+      # and the wheel quietly carried a second copy of the code. CI builds on a
+      # clean checkout so it would not have caught it; this does.
+      - name: the wheel holds exactly one package
+        run: |
+          python - <<'EOF'
+          import glob, zipfile
+          names = zipfile.ZipFile(glob.glob("dist/*.whl")[0]).namelist()
+          tops = sorted({n.split("/")[0] for n in names})
+          pkgs = [t for t in tops if not t.endswith(".dist-info")]
+          print("top-level:", tops)
+          assert pkgs == ["sunflower_thresh"], f"unexpected packages in the wheel: {pkgs}"
+          assert any(n == "sunflower_thresh/almanac/snapshot.yaml" for n in names), \
+              "the vendored obligation catalogue must ship"
+          assert sum(n.startswith("sunflower_thresh/rubrics/") for n in names) == 12, \
+              "all twelve judge rubrics must ship"
+          EOF
       - run: pip install dist/*.whl
       - run: thresh --version
       - run: thresh doctor

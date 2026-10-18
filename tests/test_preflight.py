@@ -717,3 +717,66 @@ def test_the_collector_is_worth_three_cases_and_not_thirty_four():
     assert len(promoted) < 10, (
         "if this is near 34 the cost is being read off cases that merely need the "
         "URL minted, which nothing has to fetch")
+
+
+# --- the transport the run actually uses -----------------------------------------
+
+def test_the_transport_dict_uses_the_keys_the_tools_read():
+    """Found in review, and it is the kind that cannot be caught by a test of either
+    side alone. `validate_chat_case`'s docstring promised `verify`; the chat tools
+    read `verify_tls`. A caller who followed the docstring left certificate
+    verification ON after asking for it off -- the safe direction, and still a
+    documented interface that does not exist.
+
+    Asserted against the tools' own source rather than a list written here, so the
+    two cannot drift apart again.
+    """
+    from sunflower_thresh.preflight import TRANSPORT_KEYS, transport_for
+
+    source = Path(__import__("sunflower_thresh.tools.conversation",
+                             fromlist=["x"]).__file__).read_text()
+    for key in TRANSPORT_KEYS:
+        assert f'a.get("{key}"' in source, (
+            f"{key!r} is in TRANSPORT_KEYS and no chat tool reads it")
+    assert 'a.get("verify"' not in source, "the key the docstring used to promise"
+
+    built = transport_for(_inv(tls=True, verify_tls=True, chat_path="/v1/chat",
+                               chat_port=8443))
+    assert set(built) <= set(TRANSPORT_KEYS)
+    assert built["tls"] is True
+    assert built["path"] == "/v1/chat", "the inventory calls it chat_path"
+    assert "port" not in built, (
+        "the transport is splatted AFTER the run's own port=, so a port here "
+        "silently overrides the target the caller passed")
+
+
+def test_the_inventorys_transport_fields_finally_have_a_reader():
+    """They have been on the inventory since it was written, with a comment saying
+    they are there so the run uses what preflight verified -- and nothing mapped
+    them, so every caller hand-built the dict or passed `{}`. That is how a run
+    reaches a TLS endpoint over plain HTTP because somebody forgot a flag."""
+    from sunflower_thresh.preflight import transport_for
+
+    plain = transport_for(_inv(tls=False, chat_port=0))
+    assert plain["tls"] is False
+    # `port_for_chat()` is what a caller passes as the run's `port=` argument; it is
+    # not in here, because a port in the transport overrides that one.
+    assert _inv(tls=False, chat_port=0).port_for_chat() == 80
+    assert _inv(tls=True, chat_port=0).port_for_chat() == 443
+
+    # An empty reply_path is omitted rather than sent as "", because the tools treat
+    # absent as "try the common shapes" and "" would be a path of no characters.
+    assert "reply_path" not in transport_for(_inv(reply_path=""))
+    assert transport_for(_inv(reply_path="data.message.text"))["reply_path"] == \
+        "data.message.text"
+
+
+def test_verification_can_be_turned_off_at_the_moment_of_running():
+    """An internal CA or a self-signed staging cert is a real need. It is an argument
+    rather than an inventory field because it is a decision somebody makes when they
+    run and then has to write in the report."""
+    from sunflower_thresh.preflight import transport_for
+
+    assert transport_for(_inv(verify_tls=True), verify=False)["verify_tls"] is False
+    assert transport_for(_inv(verify_tls=False), verify=True)["verify_tls"] is True
+    assert transport_for(_inv(verify_tls=False))["verify_tls"] is False
