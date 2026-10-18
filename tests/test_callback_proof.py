@@ -342,3 +342,60 @@ def test_a_collector_reachable_from_outside_needs_the_engagement_to_have_signed(
         assert signed.running
     finally:
         signed.stop()
+
+
+def test_a_lapsed_authorization_cannot_stand_up_a_routable_collector():
+    """The capability is half the gate and I had only that half.
+
+    An expired authorization is not a weaker one: the policy gate denies every call
+    under it, so an inventory that permitted this bind would have every request the
+    collector was stood up for refused. The same miss `preflight` was written
+    around, made again one module over.
+    """
+    from datetime import date, timedelta
+
+    import pytest
+
+    from sunflower_stem.collector import (
+        CALLBACK_CAPABILITY,
+        CallbackCollector,
+        CollectorRefused,
+    )
+    from sunflower_stem.schemas.target import AuthorizationRecord, TargetInventory
+
+    def _inv(**auth):
+        base = {"authorized_by": "a", "authorized_for": "b", "scope_summary": "s",
+                "granted_on": date(2026, 1, 1), "reference": "r"}
+        base.update(auth)
+        return TargetInventory(
+            project="p", allowed_tools=("chat_say",),
+            capabilities={CALLBACK_CAPABILITY: True},
+            authorization=AuthorizationRecord(**base))
+
+    lapsed = _inv(expires_on=date.today() - timedelta(days=1))
+    assert lapsed.capability_enabled(CALLBACK_CAPABILITY), "the switch is on"
+    assert not lapsed.authorization.is_active(), "and the authorization is not"
+    with pytest.raises(CollectorRefused, match="NOT ACTIVE"):
+        CallbackCollector(host="0.0.0.0", inventory=lapsed).start()
+
+    future = _inv(granted_on=date.today() + timedelta(days=7))
+    with pytest.raises(CollectorRefused, match="NOT ACTIVE"):
+        CallbackCollector(host="0.0.0.0", inventory=future).start()
+
+    # And the two halves are reported apart, because the fixes differ: a switch is
+    # a decision somebody changes, a lapsed authorization is a document to re-sign.
+    unsigned = TargetInventory(
+        project="p", allowed_tools=("chat_say",), capabilities={},
+        authorization=AuthorizationRecord(
+            authorized_by="a", authorized_for="b", scope_summary="s",
+            granted_on=date(2026, 1, 1), reference="r"))
+    with pytest.raises(CollectorRefused, match="does not enable it"):
+        CallbackCollector(host="0.0.0.0", inventory=unsigned).start()
+
+    live = _inv(expires_on=date.today() + timedelta(days=30))
+    col = CallbackCollector(host="127.0.0.1", inventory=live)
+    try:
+        col.start()
+        assert col.running
+    finally:
+        col.stop()

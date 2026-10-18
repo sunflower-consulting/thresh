@@ -45,6 +45,26 @@ class CollectorRefused(PermissionError):
     """A bind this engagement has not signed for."""
 
 
+def _why_refused(inventory) -> str:
+    """Which half of the gate was missing, because the fixes differ.
+
+    A disabled switch is a decision somebody can change; a lapsed authorization is
+    a document somebody has to re-sign, and telling an operator to edit the wrong
+    one costs them the window.
+    """
+    if inventory is None:
+        return "no inventory was passed"
+    enabled = getattr(inventory, "capability_enabled", None)
+    if enabled is None or not bool(enabled(CALLBACK_CAPABILITY)):
+        return "this inventory does not enable it"
+    auth = getattr(inventory, "authorization", None)
+    active = getattr(auth, "is_active", None)
+    if active is None:
+        return "this inventory carries no authorization record"
+    return ("the switch is on but the authorization is NOT ACTIVE, so the gate "
+            "would refuse every call this collector was stood up for")
+
+
 def _is_loopback(host: str) -> bool:
     """Loopback, or a name for it. An empty host binds every interface, so it is not.
 
@@ -151,8 +171,7 @@ class CallbackCollector:
                 f"refusing to bind {self.host}: a collector reachable from outside "
                 f"this machine needs {CALLBACK_CAPABILITY!r} enabled on the "
                 f"engagement's inventory, and "
-                + ("this inventory does not enable it"
-                   if self.inventory is not None else "no inventory was passed"))
+                + _why_refused(self.inventory))
         handler = type("_BoundHandler", (_Handler,), {"collector": self})
         self._server = ThreadingHTTPServer((self.host, self.port), handler)
         self.port = self._server.server_address[1]
@@ -162,8 +181,22 @@ class CallbackCollector:
         return self
 
     def _signed_for_callback(self) -> bool:
-        enabled = getattr(self.inventory, "capability_enabled", None)
-        return bool(enabled(CALLBACK_CAPABILITY)) if enabled else False
+        """The capability AND a live authorization. Both, and I had only the first.
+
+        An expired authorization is not a weaker authorization: the policy gate
+        denies every call under one, so an inventory that permits this bind would
+        have every request it was stood up for refused. Checking the switch alone
+        let a lapsed engagement bind a routable collector, which is the same miss
+        `preflight` was built around -- `is_active()` has always existed and the
+        gate has always enforced it.
+        """
+        inv = self.inventory
+        enabled = getattr(inv, "capability_enabled", None)
+        if enabled is None or not bool(enabled(CALLBACK_CAPABILITY)):
+            return False
+        auth = getattr(inv, "authorization", None)
+        active = getattr(auth, "is_active", None)
+        return bool(active()) if active is not None else False
 
     def stop(self) -> None:
         srv, self._server = self._server, None

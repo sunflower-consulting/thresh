@@ -116,7 +116,8 @@ def collect(engagement_dir: str | Path) -> tuple[dict, list[str]]:
     eng = Path(engagement_dir)
     pins = _pins(eng)
     chosen: dict[str, tuple[str, dict]] = {}
-    head: dict = {}
+    heads: dict[str, dict] = {}
+    latest_head: dict = {}
     notes: list[str] = []
 
     for run in exported_runs(eng):
@@ -130,7 +131,15 @@ def collect(engagement_dir: str | Path) -> tuple[dict, list[str]]:
             why = manifest.get("not_quotable_because") or "not marked quotable"
             notes.append(f"{run.name}: not quotable ({why}), skipped")
             continue
-        head = {k: v for k, v in doc.items() if k != "cases"}
+        # Kept per run rather than overwritten, because the header has to come
+        # from a run that actually CONTRIBUTED a row. It used to be reassigned for
+        # every quotable run, so when findings.yaml pinned every case to an older
+        # run the output's `run_id` named that older run while its config_hash,
+        # corpus and target metadata came from the newest one -- a header
+        # describing a run none of the rows were measured by. Caught in review.
+        heads[str(doc.get("run_id") or run.name)] = {
+            k: v for k, v in doc.items() if k != "cases"}
+        latest_head = heads[str(doc.get("run_id") or run.name)]
         for row in doc.get("cases") or []:
             cid = str(row.get("case_id") or "")
             if not cid:
@@ -145,10 +154,12 @@ def collect(engagement_dir: str | Path) -> tuple[dict, list[str]]:
             # named an earlier one.
             chosen[cid] = (str(doc.get("run_id") or run.name), row)
 
-    out: dict = dict(head)
+    quoted = sorted({rid for rid, _row in chosen.values()})
+    # The newest run that contributed a row, falling back to the newest eligible
+    # one only when nothing was selected at all.
+    out: dict = dict(heads.get(quoted[-1], latest_head) if quoted else latest_head)
     out["cases"] = [row for _rid, row in
                     (chosen[c] for c in sorted(chosen))]
-    quoted = sorted({rid for rid, _row in chosen.values()})
     if quoted:
         # `run_id` is the newest run quoted, which is the best available answer to
         # a field the consumer's schema types as one string. It is not the whole
@@ -236,8 +247,19 @@ def write(engagement_dir: str | Path) -> tuple[Path, list[str]]:
     # is a fact about the engagement rather than a failure here.
     mapping, mapping_notes = collect_mapping(eng)
     notes.extend(mapping_notes)
+    root_mapping = eng / CONTROL_MAPPING
+    if not mapping and root_mapping.is_file():
+        # A revoked result must not stay in the deliverable. Marking the only
+        # source run not quotable used to leave its previously consolidated
+        # obligations published at the engagement root, because this only ever
+        # WROTE and never removed. Caught in review. Removed rather than left, and
+        # said in the notes, because a file silently vanishing is its own surprise.
+        root_mapping.unlink()
+        notes.append(f"{CONTROL_MAPPING} removed from the engagement root: no "
+                     f"quotable run carries one any more, and a consolidated file "
+                     f"no run stands behind is a published claim nobody measured")
     if mapping:
-        (eng / CONTROL_MAPPING).write_text(
+        root_mapping.write_text(
             _MAPPING_PROVENANCE
             + f"#   {mapping.get('run_id') or 'unknown run'}\n#\n"
             + yaml.safe_dump(mapping, sort_keys=False, width=100,

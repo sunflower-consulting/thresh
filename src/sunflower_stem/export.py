@@ -168,12 +168,21 @@ def write_run(engagement_dir: str | Path, manifest: dict,
         _HEADER + yaml.safe_dump(measurements(manifest, findings),
                                  sort_keys=False, width=100, allow_unicode=True),
         encoding="utf-8")
+    mapping_path = out / CONTROL_MAPPING
     if control_mapping is not None:
         doc = {**control_mapping, "run_id": rid}
-        (out / CONTROL_MAPPING).write_text(
+        mapping_path.write_text(
             _MAPPING_HEADER + yaml.safe_dump(doc, sort_keys=False, width=100,
                                              allow_unicode=True),
             encoding="utf-8")
+    elif mapping_path.is_file():
+        # This export has no mapping, so the run must not keep the one a previous
+        # export left. Removing the engagement's regulatory scope, or passing
+        # --no-control-mapping, used to leave the old file in place for
+        # `consolidate` to pick up while the CLI reported that none was written.
+        # Caught in review. The file is generated, so removing it is safe; nothing
+        # here touches a file a human wrote.
+        mapping_path.unlink()
     return out
 
 

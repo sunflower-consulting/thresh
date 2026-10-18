@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import platform
+import secrets
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -45,6 +46,10 @@ FINDINGS = "findings.jsonl"
 EVENTS = "events.jsonl"
 
 
+class BundleExists(FileExistsError):
+    """A bundle is written once. Writing a second time would lose the first."""
+
+
 def run_id(prefix: str = "run") -> str:
     """A run id that sorts chronologically and carries no client's name.
 
@@ -52,7 +57,13 @@ def run_id(prefix: str = "run") -> str:
     in order is what a retest walks back through.
     """
     stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%S")
-    return f"{stamp}_{prefix}"
+    # Seconds are not enough to be unique and `write` does not refuse a collision:
+    # two runs started in the same second produced one directory and the second
+    # overwrote the first's manifest and findings, losing a measurement silently.
+    # Caught in review. Milliseconds plus four random hex, so neither a fast loop
+    # nor two concurrent workers can land on one id.
+    return f"{stamp}-{datetime.now(UTC).microsecond // 1000:03d}" \
+           f"_{prefix}_{secrets.token_hex(4)}"
 
 
 @dataclass
@@ -105,15 +116,32 @@ def write(run_dir: str | Path, manifest: Manifest, findings) -> Path:
     the break, which matters when a long run is interrupted.
     """
     d = Path(run_dir)
+    if (d / MANIFEST).is_file():
+        # Refused rather than overwritten, and this is the guarantee the id's
+        # entropy only makes unlikely. A collision used to replace the earlier
+        # run's manifest and findings in place, so a measurement vanished with
+        # nothing said; widening the id makes that rare and refusing makes it
+        # impossible. A bundle is written once, which is this project's own rule
+        # about machine files.
+        raise BundleExists(
+            f"{d} already holds a {MANIFEST}: a run bundle is written once. Two "
+            f"runs sharing an id would lose the earlier one's measurement, so "
+            f"mint a fresh id with `run_id()` rather than writing here again")
     d.mkdir(parents=True, exist_ok=True)
-    (d / MANIFEST).write_text(json.dumps(manifest.as_dict(), indent=2,
-                                         sort_keys=False) + "\n",
-                              encoding="utf-8")
+    # Findings first, and the ORDER is the point. The manifest is what marks a
+    # bundle finished and possibly quotable, so writing it first meant a crash
+    # during serialisation left a directory that `export` reads as a completed run
+    # with no findings -- a quotable manifest advertising a measurement that was
+    # never written. Caught in review. Serialise, write the findings, and only then
+    # publish the manifest.
     lines = []
     for f in findings:
         raw = f.model_dump(mode="json") if hasattr(f, "model_dump") else dict(f)
         lines.append(json.dumps(raw, sort_keys=True))
     (d / FINDINGS).write_text("\n".join(lines) + ("\n" if lines else ""),
+                              encoding="utf-8")
+    (d / MANIFEST).write_text(json.dumps(manifest.as_dict(), indent=2,
+                                         sort_keys=False) + "\n",
                               encoding="utf-8")
     return d
 

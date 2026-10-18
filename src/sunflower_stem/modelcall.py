@@ -105,7 +105,31 @@ _REASONING_KEYS = ("reasoning", "reasoning_content", "thinking")
 #:
 #: Refused rather than warned, because the failure is a silent belief and an error
 #: that carries the measurement is how a caller learns it in seconds.
-IGNORED_BY_OPENAI_SHAPE = {
+#:
+#: NAMED FOR THE SERVER IT WAS MEASURED ON, which it was not. This was
+#: `IGNORED_BY_OPENAI_SHAPE` and applied to every OpenAI-compatible endpoint, which
+#: turned a measurement about one server into a refusal for all of them --
+#: `reasoning_effort` is a real OpenAI parameter, as the entry below says in its own
+#: words, and `chat_template_kwargs` is supported by vLLM and others. So a valid
+#: request to one of those was rejected before it ever reached the server, on the
+#: strength of what Ollama does. Caught in review.
+#:
+#: Refusing something a server does not implement is not fail-closed. It is a false
+#: claim about that server's capability, so the guard now applies only where the
+#: measurement does and anything unrecognised is passed through to be answered by
+#: the thing that knows.
+def _looks_like_ollama(endpoint: str) -> bool:
+    """A best guess from the URL, which is all there is without sending a request.
+
+    Ollama's default port and the obvious hostnames. Wrong in both directions for
+    an unusual deployment, which is why `backend=` overrides it -- and wrong in the
+    safe direction by default: an unrecognised endpoint is not refused anything.
+    """
+    low = (endpoint or "").lower()
+    return ":11434" in low or "ollama" in low
+
+
+IGNORED_BY_OLLAMA = {
     "think": ("Ollama accepts `think` on /v1/chat/completions and ignores it: "
               "measured 253 completion tokens against a 327 baseline, still 1012 "
               "chars of reasoning. It works only on the native /api/chat (13 "
@@ -208,7 +232,8 @@ class ChatTransport:
     def __init__(self, endpoint: str, model_name: str, *, api_key_env: str = "",
                  timeout_s: float = DEFAULT_TIMEOUT_S, retries: int = DEFAULT_RETRIES,
                  max_tokens: int = DEFAULT_MAX_TOKENS, verify_tls: bool = True,
-                 defaults: dict | None = None) -> None:
+                 defaults: dict | None = None,
+                 backend: str = "auto") -> None:
         self.endpoint = endpoint.rstrip("/")
         self.model_name = model_name
         self.api_key_env = api_key_env
@@ -217,6 +242,11 @@ class ChatTransport:
         self.max_tokens = int(max_tokens)
         self.verify_tls = bool(verify_tls)
         self.defaults = dict(defaults or {})
+        #: Whether the refusals above apply. Detected from the endpoint and
+        #: overridable, because the measurements behind them are about Ollama and
+        #: a parameter another server implements must reach it.
+        self.is_ollama = (_looks_like_ollama(self.endpoint) if backend == "auto"
+                          else backend == "ollama")
 
     @property
     def model_id(self) -> str:
@@ -224,10 +254,11 @@ class ChatTransport:
 
     def complete(self, messages: list[Message], **params) -> ModelReply:
         merged = {**self.defaults, **params}
-        for name in sorted(set(merged) & set(IGNORED_BY_OPENAI_SHAPE)):
-            raise ModelCallError(
-                f"{name!r} does nothing on an OpenAI-compatible endpoint. "
-                f"{IGNORED_BY_OPENAI_SHAPE[name]}")
+        if self.is_ollama:
+            for name in sorted(set(merged) & set(IGNORED_BY_OLLAMA)):
+                raise ModelCallError(
+                    f"{name!r} does nothing on Ollama's OpenAI-compatible "
+                    f"endpoint. {IGNORED_BY_OLLAMA[name]}")
         # A falsy cap means "no cap, let the server decide": an escape hatch, not
         # the default.
         cap = merged.pop("max_tokens", self.max_tokens)

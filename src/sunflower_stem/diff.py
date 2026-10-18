@@ -54,7 +54,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from sunflower_stem.export import _case_id
 from sunflower_stem.obligations import CITABLE_STATES
 
 #: States that mean "we established this was real". Imported rather than redefined:
@@ -78,6 +77,26 @@ _NOISE = frozenset({
 _WORDS = re.compile(r"[a-z0-9]+")
 
 
+def case_of(finding: dict) -> str:
+    """The CASE a finding measured, or "" when it measured none.
+
+    Narrower than `export._case_id`, deliberately, and this is the difference. That
+    one answers "what goes in the case_id column of a measurement row", where
+    falling back to the finding's own id is a reasonable last resort. This one
+    answers "is this finding's identity a case", and the finding's id is the one
+    answer it must never accept: `Finding.id` is REQUIRED, so taking it would mean a
+    hand-written finding never reaches the content signature at all -- and editing
+    its id between runs would report the same issue as one fixed and one new.
+
+    Caught in review. The test that was supposed to cover the fallback passed only
+    because its fixture omitted `id`, which a real finding cannot.
+    """
+    if finding.get("corpus_id"):
+        return str(finding["corpus_id"])
+    cases = finding.get("test_cases") or []
+    return str(cases[0]) if cases else ""
+
+
 def finding_signature(finding: dict) -> str:
     """The identity that has to survive a retest.
 
@@ -90,7 +109,7 @@ def finding_signature(finding: dict) -> str:
     The taxon is not in either branch. See the module docstring: it is the field whose
     inclusion turns a reclassification into a fix.
     """
-    cid = _case_id(finding)
+    cid = case_of(finding)
     if cid:
         return f"case:{cid}"
     parts = [str(finding.get(k) or "").strip().lower()
@@ -114,6 +133,11 @@ class Row:
     #: reproduced" and is why closure distinguishes the two.
     variants_run: tuple[str, ...] = ()
     variants_reproducing: tuple[str, ...] = ()
+    #: Every variant the library knows of, and the ones the retest did not measure.
+    #: Closure needs the second to be empty: a clean result for two of five variants
+    #: says nothing about the other three, and the claim is about the technique.
+    variants_known: tuple[str, ...] = ()
+    variants_missing: tuple[str, ...] = ()
 
     @property
     def asr_before(self) -> float:
@@ -306,10 +330,10 @@ def diff_runs(before_dir: str | Path, after_dir: str | Path, *,
     # attempt list with no finding at all did not complete -- gate-denied, errored,
     # or killed. Counting one of those as "re-tested without reproducing" would rest
     # a closure on a measurement nobody has.
-    measured_now = {cid for cid in (_case_id(f) for f in after_f) if cid}
+    measured_now = {cid for cid in (case_of(f) for f in after_f) if cid}
     reproducing_now = {
-        _case_id(f) for f in after_f
-        if str(f.get("state") or "") in STOOD_UP and _case_id(f)}
+        case_of(f) for f in after_f
+        if str(f.get("state") or "") in STOOD_UP and case_of(f)}
 
     for sig, old in b.items():
         row = Row(signature=sig, title=str(old.get("title") or ""), before=old,
@@ -380,9 +404,16 @@ def _place_stopped(out: Diff, row: Row, old: dict, library: dict | None,
     still = sorted(siblings & reproducing_now)
     row.variants_run = tuple(ran)
     row.variants_reproducing = tuple(still)
+    row.variants_known = tuple(sorted(siblings))
+    row.variants_missing = tuple(sorted(siblings - measured_now))
     if still:
         out.narrowed.append(row)
-    elif ran:
+    elif siblings and not row.variants_missing:
+        # The WHOLE set, measured and clean. One clean sibling is not closure: for a
+        # technique with variants B and C, clean results for the case and B say
+        # nothing about C, and the claim being made is about the technique rather
+        # than about the two cases that happened to run. Caught in review; the rule
+        # here was "any clean variant", which contradicted this module's own thesis.
         out.closed.append(row)
     else:
         out.unverified.append(row)
@@ -425,8 +456,13 @@ def render(d: Diff) -> str:
                     f"still landing: {', '.join(row.variants_reproducing[:6])}"))
             elif label == "closed":
                 lines.append("        " + ts.muted(
-                    f"and {len(row.variants_run)} variant(s) re-tested without "
-                    f"reproducing"))
+                    f"and all {len(row.variants_known)} variant(s) re-tested "
+                    f"without reproducing"))
+            elif label == "fix unverified" and row.variants_missing:
+                lines.append("        " + ts.muted(
+                    f"{len(row.variants_missing)} of {len(row.variants_known)} "
+                    f"variant(s) were not re-tested: "
+                    f"{', '.join(row.variants_missing[:4])}"))
         if len(bucket) > 12:
             lines.append(f"      {ts.muted(f'+{len(bucket) - 12} more')}")
         lines.append("")
@@ -474,6 +510,8 @@ def as_document(d: Diff) -> dict[str, Any]:
                 row["variants_retested"] = list(r.variants_run)
             if r.variants_reproducing:
                 row["variants_still_reproducing"] = list(r.variants_reproducing)
+            if r.variants_missing:
+                row["variants_not_retested"] = list(r.variants_missing)
             out.append(row)
         return out
 

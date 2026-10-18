@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 from sunflower_stem.modelcall import (
-    IGNORED_BY_OPENAI_SHAPE,
+    IGNORED_BY_OLLAMA,
     ChatTransport,
     Message,
     ModelCallError,
@@ -225,7 +225,7 @@ def test_the_scripted_transport_records_what_it_was_asked(server):
 
 # --- parameters that are accepted and ignored, which is worse than rejected ------
 
-@pytest.mark.parametrize("name", sorted(IGNORED_BY_OPENAI_SHAPE))
+@pytest.mark.parametrize("name", sorted(IGNORED_BY_OLLAMA))
 def test_a_parameter_this_endpoint_ignores_is_refused_rather_than_sent(server, name):
     """Measured against Ollama 0.40.5 with qwen3:8b: `think=False` on
     /v1/chat/completions gives 253 completion tokens against a 327 baseline and
@@ -240,14 +240,15 @@ def test_a_parameter_this_endpoint_ignores_is_refused_rather_than_sent(server, n
     srv, h = server
     h.script.append((200, _ok()))
     with pytest.raises(ModelCallError, match="does nothing"):
-        _transport(srv).complete([Message(role="user", content="q")], **{name: False})
+        _transport(srv, backend="ollama").complete(
+            [Message(role="user", content="q")], **{name: False})
     assert not h.seen, "it must not reach the wire at all"
 
 
 def test_the_refusal_names_the_fix_and_not_just_the_problem():
     """A refusal a caller cannot act on gets worked around. The fix is one line in
     the model's own Modelfile, so the message says so."""
-    assert "Modelfile" in IGNORED_BY_OPENAI_SHAPE["think"]
+    assert "Modelfile" in IGNORED_BY_OLLAMA["think"]
 
 
 def test_the_same_parameter_in_defaults_is_refused_too(server):
@@ -255,7 +256,7 @@ def test_the_same_parameter_in_defaults_is_refused_too(server):
     like configuration rather than a per-call flag."""
     srv, _h = server
     with pytest.raises(ModelCallError, match="does nothing"):
-        _transport(srv, defaults={"think": False}).complete(
+        _transport(srv, backend="ollama", defaults={"think": False}).complete(
             [Message(role="user", content="q")])
 
 
@@ -266,3 +267,42 @@ def test_an_ordinary_sampling_parameter_still_reaches_the_wire(server):
     h.script.append((200, _ok()))
     _transport(srv).complete([Message(role="user", content="q")], temperature=0.2)
     assert h.seen[0][2]["temperature"] == 0.2
+
+
+# --- and the refusal belongs to the server it was measured on --------------------
+
+@pytest.mark.parametrize("name", sorted(IGNORED_BY_OLLAMA))
+def test_another_backend_gets_the_parameter_rather_than_a_refusal(server, name):
+    """Caught in review. These measurements are about Ollama, and the constant used
+    to be called `IGNORED_BY_OPENAI_SHAPE` and applied to every OpenAI-compatible
+    endpoint -- so a valid request was rejected before reaching a server that
+    implements the parameter. `reasoning_effort` is a real OpenAI parameter, as its
+    own entry says, and `chat_template_kwargs` is supported by vLLM among others.
+
+    Refusing what a server does not implement is not fail-closed; it is a false
+    claim about that server's capability. An unrecognised endpoint is passed
+    through and answered by the thing that knows.
+    """
+    srv, h = server
+    h.script.append((200, _ok()))
+    reply = _transport(srv).complete([Message(role="user", content="q")],
+                                     **{name: False})
+    assert reply.text == "hi"
+    assert h.seen, "it must reach the wire"
+    _method, _path, body = h.seen[-1]
+    assert name in body, "and carry the parameter"
+
+
+def test_ollama_is_recognised_from_its_endpoint_and_can_be_overridden():
+    """A guess from the URL is all there is without sending a request, so it is
+    wrong in the safe direction: an endpoint nobody recognises is refused nothing."""
+    from sunflower_stem.modelcall import ChatTransport
+
+    for url in ("http://127.0.0.1:11434/v1", "http://ollama.internal/v1",
+                "http://OLLAMA:11434/v1"):
+        assert ChatTransport(url, "m").is_ollama, url
+    for url in ("http://127.0.0.1:8000/v1", "https://api.openai.com/v1",
+                "http://vllm.internal:8080/v1"):
+        assert not ChatTransport(url, "m").is_ollama, url
+    assert ChatTransport("http://vllm:8080/v1", "m", backend="ollama").is_ollama
+    assert not ChatTransport("http://x:11434/v1", "m", backend="openai").is_ollama

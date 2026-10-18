@@ -23,6 +23,7 @@ fixed when somebody reclassified it.
 """
 from __future__ import annotations
 
+import itertools
 from pathlib import Path
 
 import pytest
@@ -76,10 +77,17 @@ def _bundle(tmp: Path, rid: str, findings, cases=None, **manifest) -> Path:
     return runbundle.write(tmp / rid, runbundle.Manifest(**base), findings)
 
 
+#: Each `_diff` writes a fresh pair, because a bundle is written once: calling it
+#: twice in one test used to reuse the directory, which `runbundle.write` now
+#: refuses outright rather than overwriting.
+_PAIR = itertools.count()
+
+
 def _diff(tmp, before, after, *, before_cases=None, after_cases=None,
           library=LIBRARY, **mf) -> Diff:
-    b = _bundle(tmp, "before", before, before_cases)
-    a = _bundle(tmp, "after", after, after_cases, **mf)
+    slot = tmp / f"pair-{next(_PAIR)}"
+    b = _bundle(slot, "before", before, before_cases)
+    a = _bundle(slot, "after", after, after_cases, **mf)
     return diff_runs(b, a, library=library)
 
 
@@ -105,15 +113,21 @@ def test_the_taxon_is_deliberately_not_in_the_signature():
     assert finding_signature(before) == finding_signature(after)
 
 
-def test_a_hand_written_finding_falls_back_to_its_content():
+def test_a_hand_written_finding_falls_back_to_its_content_and_not_its_id():
     """Something somebody noticed and wrote up has no case. Its identity is target,
     CWE, product, version and the significant words of its title -- a set, so a
     reworded title is still the same finding rather than a fix plus a regression."""
-    one = {"title": "The bot leaks the system prompt", "target": "h", "cwe": "CWE-200"}
-    reworded = {"title": "system prompt leaks from the bot", "target": "h",
+    # WITH an id, because `Finding.id` is required and the fixture that omitted one
+    # is why this passed while the fallback was unreachable. Caught in review.
+    one = {"id": "ACME-2026-001", "title": "The bot leaks the system prompt",
+           "target": "h", "cwe": "CWE-200"}
+    reworded = {"id": "ACME-2026-001-v2",
+                "title": "system prompt leaks from the bot", "target": "h",
                 "cwe": "CWE-200"}
-    other = {"title": "The bot calls the write tool", "target": "h", "cwe": "CWE-200"}
-    assert finding_signature(one).startswith("sig:")
+    other = {"id": "ACME-2026-002", "title": "The bot calls the write tool",
+             "target": "h", "cwe": "CWE-200"}
+    assert finding_signature(one).startswith("sig:"), (
+        "a finding with no case must not key on its own id, which is editable")
     assert finding_signature(one) == finding_signature(reworded)
     assert finding_signature(one) != finding_signature(other)
 
@@ -158,8 +172,9 @@ def test_a_case_closes_only_with_its_variants_retested_clean(tmp_path):
                _finding("INJ-D-0003", "rejected", 0.0)])
     assert [r.case for r in d.closed] == ["INJ-D-0001"]
     assert set(d.closed[0].variants_run) == {"INJ-D-0002", "INJ-D-0003"}
+    assert d.closed[0].variants_missing == (), "the whole set, or it is not closure"
     assert not d.narrowed and not d.unverified
-    assert "2 variant(s) re-tested without reproducing" in render(d)
+    assert "all 2 variant(s) re-tested without reproducing" in render(d)
 
 
 def test_a_case_that_stopped_with_no_variant_retested_makes_no_claim(tmp_path):
@@ -357,12 +372,37 @@ def test_the_document_carries_the_variants_a_closure_rested_on(tmp_path):
     d = _diff(tmp_path,
               [_finding("INJ-D-0001", "validated", 0.9)],
               [_finding("INJ-D-0001", "rejected", 0.0),
-               _finding("INJ-D-0002", "rejected", 0.0)])
+               _finding("INJ-D-0002", "rejected", 0.0),
+               _finding("INJ-D-0003", "rejected", 0.0)])
     doc = as_document(d)
     assert doc["counts"]["closed"] == 1
     assert doc["closed"][0]["case"] == "INJ-D-0001"
-    assert doc["closed"][0]["variants_retested"] == ["INJ-D-0002"]
+    assert doc["closed"][0]["variants_retested"] == ["INJ-D-0002", "INJ-D-0003"]
+    assert "variants_not_retested" not in doc["closed"][0]
     assert "closed" in doc and "narrowed" not in doc, "empty buckets are omitted"
+
+
+def test_a_clean_result_for_part_of_the_variant_set_is_not_closure(tmp_path):
+    """Caught in review, and it contradicted this module's own thesis.
+
+    The rule was "any clean variant", so for a technique with variants B and C a
+    clean result for the case and B declared closure with no result for C at all.
+    The claim being made is about the TECHNIQUE, and two of three cases say nothing
+    about the third.
+    """
+    d = _diff(tmp_path,
+              [_finding("INJ-D-0001", "validated", 0.9)],
+              [_finding("INJ-D-0001", "rejected", 0.0),
+               _finding("INJ-D-0002", "rejected", 0.0)])
+    assert not d.closed
+    assert [r.case for r in d.unverified] == ["INJ-D-0001"]
+    row = d.unverified[0]
+    assert row.variants_run == ("INJ-D-0002",)
+    assert row.variants_missing == ("INJ-D-0003",)
+    assert set(row.variants_known) == {"INJ-D-0002", "INJ-D-0003"}
+    text = render(d)
+    assert "1 of 2 variant(s) were not re-tested: INJ-D-0003" in text
+    assert as_document(d)["unverified"][0]["variants_not_retested"] == ["INJ-D-0003"]
 
 
 def test_the_document_names_a_surviving_variant(tmp_path):
@@ -426,14 +466,16 @@ def test_a_variant_on_the_attempt_list_that_produced_no_finding_is_not_a_retest(
               [_finding("INJ-D-0001", "rejected", 0.0),
                _finding("INJ-D-0002", "rejected", 0.0)],
               after_cases=["INJ-D-0001", "INJ-D-0002", "INJ-D-0003"])
-    assert [r.case for r in d.closed] == ["INJ-D-0001"]
-    assert d.closed[0].variants_run == ("INJ-D-0002",), (
-        "INJ-D-0003 was selected and never reported, so it is not evidence")
+    assert not d.closed, "INJ-D-0003 was selected and never reported"
+    assert d.unverified[0].variants_run == ("INJ-D-0002",)
+    assert d.unverified[0].variants_missing == ("INJ-D-0003",), (
+        "being on the attempt list is not a result")
 
-    # And with ONLY the incomplete variant, there is no evidence at all.
+    # Reported clean, and it closes: a finding exists either way for a case that ran.
     d2 = _diff(tmp_path,
                [_finding("INJ-D-0001", "validated", 0.9)],
-               [_finding("INJ-D-0001", "rejected", 0.0)],
+               [_finding("INJ-D-0001", "rejected", 0.0),
+                _finding("INJ-D-0002", "rejected", 0.0),
+                _finding("INJ-D-0003", "rejected", 0.0)],
                after_cases=["INJ-D-0001", "INJ-D-0002", "INJ-D-0003"])
-    assert not d2.closed
-    assert [r.case for r in d2.unverified] == ["INJ-D-0001"]
+    assert [r.case for r in d2.closed] == ["INJ-D-0001"]

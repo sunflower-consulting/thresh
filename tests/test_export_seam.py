@@ -591,3 +591,92 @@ def test_the_control_mapping_passes_the_renderers_own_validator(tmp_path):
         errors = sorted(validator.iter_errors(yaml.safe_load(path.read_text())),
                         key=lambda e: list(e.path))
         assert not errors, f"{path.name}: {[e.message for e in errors[:3]]}"
+
+
+def test_a_re_export_without_a_mapping_removes_the_one_it_had(tmp_path):
+    """Caught in review. Removing the engagement's regulatory scope, or passing
+    --no-control-mapping, left the previous generated mapping in place for
+    `consolidate` to pick up while the CLI reported that none was written."""
+    from sunflower_stem.export import CONTROL_MAPPING
+
+    bundle = _bundle(tmp_path, "2026-10-18T09-00-00_run-a", quotable=True,
+                     findings=[_finding()])
+    manifest, findings = runbundle.load(bundle)
+    eng = tmp_path / "engagement"
+    eng.mkdir()
+    out = write_run(eng, manifest, findings, control_mapping=_mapping())
+    assert (out / CONTROL_MAPPING).is_file()
+
+    write_run(eng, manifest, findings)          # the scope went away
+    assert not (out / CONTROL_MAPPING).exists(), (
+        "a generated file nothing stands behind must not survive a re-export")
+    assert (out / "measurements.yaml").is_file(), "and the first file is untouched"
+
+
+def test_a_revoked_mapping_does_not_stay_in_the_deliverable(tmp_path):
+    """Caught in review. Marking the only source run not quotable left its
+    previously consolidated obligations published at the engagement root, because
+    consolidation only ever wrote and never removed."""
+    from sunflower_stem.export import CONTROL_MAPPING
+
+    eng = tmp_path / "engagement"
+    eng.mkdir()
+    bundle = _bundle(tmp_path, "2026-10-18T09-00-00_run-a", quotable=True,
+                     findings=[_finding()])
+    manifest, findings = runbundle.load(bundle)
+    write_run(eng, manifest, findings, control_mapping=_mapping())
+    consolidate(eng)
+    assert (eng / CONTROL_MAPPING).is_file()
+
+    # The run is revoked: re-export it as not quotable and consolidate again.
+    revoked = _bundle(tmp_path, "2026-10-18T10-00-00_run-a", quotable=False,
+                      findings=[_finding()])
+    rm, rf = runbundle.load(revoked)
+    import shutil
+    shutil.rmtree(eng / "runs")
+    write_run(eng, rm, rf, control_mapping=_mapping())
+    _out, notes = consolidate(eng)
+    assert not (eng / CONTROL_MAPPING).exists()
+    assert any("removed from the engagement root" in n for n in notes), (
+        "and a file vanishing is said out loud")
+
+
+def test_two_runs_started_in_the_same_second_do_not_share_a_directory(tmp_path):
+    """Caught in review. Run ids were second-precision with no suffix, and `write`
+    does not refuse a collision -- so two runs started in the same second wrote one
+    directory and the second silently overwrote the first's measurement."""
+    import re
+
+    rid = runbundle.run_id("sweep")
+    # Milliseconds and a random suffix, so a tight loop does not repeat...
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}_sweep_[0-9a-f]{8}",
+                        rid), rid
+    assert len({runbundle.run_id("sweep") for _ in range(200)}) == 200
+
+    # ...but entropy only makes a collision unlikely, so the guarantee is that a
+    # bundle is written ONCE. That is deterministic and is what stops a
+    # measurement vanishing.
+    import pytest
+
+    shared = tmp_path / "shared"
+    runbundle.write(shared, runbundle.Manifest(run_id="first"), [])
+    with pytest.raises(runbundle.BundleExists, match="written once"):
+        runbundle.write(shared, runbundle.Manifest(run_id="second"), [])
+
+
+def test_the_manifest_is_published_only_after_the_findings_are_written(tmp_path):
+    """Caught in review. The manifest marks a bundle finished and possibly quotable,
+    so writing it first meant a crash during serialisation left a directory `export`
+    reads as a completed run with no findings."""
+    class _Unserialisable:
+        def model_dump(self, **_kw):
+            raise RuntimeError("serialisation failed mid-run")
+
+    d = tmp_path / "doomed"
+    with pytest.raises(RuntimeError, match="serialisation failed"):
+        runbundle.write(d, runbundle.Manifest(run_id="doomed", quotable=True),
+                        [_Unserialisable()])
+    assert not (d / "manifest.json").exists(), (
+        "a quotable manifest must not advertise findings that were never written")
+    manifest, findings = runbundle.load(d)
+    assert manifest == {} and findings == []
