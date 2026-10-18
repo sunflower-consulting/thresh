@@ -90,6 +90,14 @@ def judge_reason(state: str | None = None) -> str:
     return _JUDGE_REASONS[state or judge_state()]
 
 
+#: Rungs whose availability is a fact about an engagement rather than about this
+#: installation. The machinery for all three ships; whether YOUR run can reach them
+#: depends on a canary the client holds, a collector the target can reach, and an
+#: agent that reports its own tool calls. `stem doctor` opens no socket and reads no
+#: scope document, so it must not answer for any of them.
+ENGAGEMENT_RUNGS: frozenset[str] = frozenset({"CANARY", "CALLBACK", "TOOL_CALL"})
+
+
 def _rungs(state: str) -> list[str]:
     """The ladder, strongest first, each with what it needs to be reachable.
 
@@ -115,7 +123,20 @@ def _rungs(state: str) -> list[str]:
     for s in sorted(EvidenceStrength, key=lambda s: -s.value):
         if s.name not in needs:
             continue
-        if s.name != "JUDGE":
+        if s.name in ENGAGEMENT_RUNGS:
+            # Not "available". Read the `needs` column: a seeded token, a listener
+            # the target can reach, a target that reports its own tool calls. Every
+            # one of those is a fact about an ENGAGEMENT, and this command cannot
+            # open a socket or read a scope document, so it cannot know any of them.
+            #
+            # It said "available" for all three, which is the defect this file was
+            # rewritten to fix, one rung over: a constant string making a
+            # conditional claim unconditionally, in the command the README tells
+            # readers to believe over the README. `stem preflight` is what measures
+            # them, and for the callback rung it had to be written before the answer
+            # existed at all.
+            status = "per engagement"
+        elif s.name != "JUDGE":
             status = "available"
         elif state == JUDGE_ABSENT:
             # Not "off". Off is a decision; this is an absence, and a reader who
@@ -123,7 +144,12 @@ def _rungs(state: str) -> list[str]:
             status = "absent"
         else:
             status = "off"
-        out.append(f"  {s.value}  {s.name:<11} {status:<10} needs {needs[s.name]}")
+        out.append(f"  {s.value}  {s.name:<11} {status:<14} needs {needs[s.name]}")
+    out.append("")
+    out.append("  `stem preflight` measures the three marked per engagement, against "
+               "one engagement's")
+    out.append("  scope document and its target. This command cannot: it opens no "
+               "socket.")
     return out
 
 

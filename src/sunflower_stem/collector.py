@@ -37,8 +37,29 @@ from sunflower_stem.evidence.store import EvidenceStore
 from sunflower_stem.schemas.evidence import EvidenceKind
 
 #: The capability an engagement must switch on before a collector may bind
-#: anything other than loopback.
+#: anything other than loopback. Enforced in `CallbackCollector.start`.
 CALLBACK_CAPABILITY = "out_of_band_callback"
+
+
+class CollectorRefused(PermissionError):
+    """A bind this engagement has not signed for."""
+
+
+def _is_loopback(host: str) -> bool:
+    """Loopback, or a name for it. An empty host binds every interface, so it is not.
+
+    `0.0.0.0` and `::` are the dangerous spellings and the easy ones to type: they
+    read like "the default" and mean "every interface this machine has".
+    """
+    import ipaddress
+
+    name = (host or "").strip().lower()
+    if name in ("localhost", "localhost.localdomain"):
+        return True
+    try:
+        return ipaddress.ip_address(name).is_loopback
+    except ValueError:
+        return False
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -93,10 +114,13 @@ class CallbackCollector:
     """
 
     def __init__(self, host: str = "127.0.0.1", port: int = 0,
-                 store: EvidenceStore | None = None) -> None:
+                 store: EvidenceStore | None = None,
+                 inventory=None) -> None:
         self.host = host
         self.port = port
         self.store = store
+        #: The scope document, when binding anything but loopback. See `start`.
+        self.inventory = inventory
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
         self._hits: dict[str, list[dict]] = {}
@@ -106,8 +130,29 @@ class CallbackCollector:
     # ----- lifecycle -----
 
     def start(self) -> CallbackCollector:
+        """Bind and serve. A non-loopback bind needs the engagement to have signed.
+
+        The gate this module's docstring has always claimed. It declares
+        `CALLBACK_CAPABILITY` and says the collector "is gated by" it, and nothing
+        read the constant -- so `CallbackCollector(host="0.0.0.0").start()` bound
+        every interface with no scope document consulted, which is the one thing the
+        docstring promised it would not do. A routable collector is a service the
+        operator runs on someone else's behalf, and that is a decision for an
+        engagement to sign rather than for a tool to assume.
+
+        Fail-closed: with no inventory, only loopback. Every caller in this package
+        binds loopback, so the gate costs them nothing and the one that does not is
+        the one that has to produce the signature.
+        """
         if self._server is not None:
             return self
+        if not _is_loopback(self.host) and not self._signed_for_callback():
+            raise CollectorRefused(
+                f"refusing to bind {self.host}: a collector reachable from outside "
+                f"this machine needs {CALLBACK_CAPABILITY!r} enabled on the "
+                f"engagement's inventory, and "
+                + ("this inventory does not enable it"
+                   if self.inventory is not None else "no inventory was passed"))
         handler = type("_BoundHandler", (_Handler,), {"collector": self})
         self._server = ThreadingHTTPServer((self.host, self.port), handler)
         self.port = self._server.server_address[1]
@@ -115,6 +160,10 @@ class CallbackCollector:
                                         name="callback-collector", daemon=True)
         self._thread.start()
         return self
+
+    def _signed_for_callback(self) -> bool:
+        enabled = getattr(self.inventory, "capability_enabled", None)
+        return bool(enabled(CALLBACK_CAPABILITY)) if enabled else False
 
     def stop(self) -> None:
         srv, self._server = self._server, None

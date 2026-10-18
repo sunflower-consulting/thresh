@@ -161,6 +161,56 @@ def _build_parser() -> argparse.ArgumentParser:
                           "because 243 of 244 reads exactly like a corpus and the "
                           "case it dropped is the case nobody ran.")
     cor.set_defaults(func=_corpus)
+
+    pre = sub.add_parser(
+        "preflight", help="can this engagement run, and what will it send",
+        description="Check one engagement before it spends a message budget. "
+                    "Answers four questions: is the scope sound, can we reach them, "
+                    "what can we test, and what will it cost. Every check that can "
+                    "be answered offline is, and the only thing sent to the target "
+                    "is one ordinary question -- last, and only once everything "
+                    "before it passed.")
+    pre.add_argument("--scope", metavar="FILE", type=Path, required=True,
+                     help="the signed scope document: a YAML target inventory.")
+    pre.add_argument("--corpus", metavar="DIR", default="",
+                     help=f"the case library. Defaults to ${CORPUS_ENV}. Without "
+                          f"one the built-in cases are used, which answers the shape "
+                          f"of the report and not the size of the run.")
+    pre.add_argument("--bindings", metavar="FILE", type=Path,
+                     help="YAML of placeholder values. The scope document's `seeds` "
+                          "beat it, because the inventory is the signed record.")
+    pre.add_argument("--target", metavar="HOST", default="",
+                     help="the chat endpoint's host. Defaults to the single entry in "
+                          "the scope's allowed_domains when there is exactly one.")
+    pre.add_argument("--port", type=int, default=0,
+                     help="default 443 with tls, else 80.")
+    pre.add_argument("--trials", type=int, default=0,
+                     help="override every case's own trial count. Off by default, "
+                          "and leaving it off is what keeps the two-trial cap on "
+                          "cases that measure cost rather than disclosure.")
+    pre.add_argument("--collector", action="store_true",
+                     help="stand up a callback collector and PROBE it, rather than "
+                          "asserting it is reachable. Binding anything but loopback "
+                          "also needs out_of_band_callback in the scope.")
+    pre.add_argument("--collector-host", metavar="HOST", default="127.0.0.1",
+                     help="what the collector binds. Loopback by default, which "
+                          "nothing outside this machine can reach.")
+    pre.add_argument("--advertise", metavar="URL", default="",
+                     help="the collector URL cases are given, when it differs from "
+                          "the bind address. Probed, and only if it names this host.")
+    pre.add_argument("--tool-visibility", action="store_true",
+                     help="the target's replies report which tools it called.")
+    pre.add_argument("--judge", action="store_true",
+                     help="a calibrated judge is available to this run.")
+    pre.add_argument("--insecure", action="store_true",
+                     help="do not verify the certificate. Recorded in the readout, "
+                          "because a finding attributed to a host whose identity was "
+                          "not checked is a weaker finding.")
+    pre.add_argument("--mock", metavar="PROFILE", default="",
+                     help="rehearse against a fake target instead of sending "
+                          "anything: healthy, instrumented, stateless, unauthorised, "
+                          "streaming, nested, silent.")
+    pre.set_defaults(func=_preflight)
     return p
 
 
@@ -448,6 +498,103 @@ def _corpus(args: argparse.Namespace) -> int:
         if case.seed_note:
             print(f"  PLANT FIRST: {' '.join(case.seed_note.split())[:150]}")
     return 0
+
+
+def _preflight(args: argparse.Namespace) -> int:
+    """Check an engagement. Sends one ordinary question, last, or nothing at all."""
+    import contextlib
+
+    import yaml
+
+    from sunflower_stem.collector import CallbackCollector, CollectorRefused
+    from sunflower_stem.corpus import CorpusError, load_chat_cases, resolve_bindings
+    from sunflower_stem.preflight import (
+        EngagementPreflight,
+        ScopeError,
+        Status,
+        load_inventory,
+        mock_sender,
+        render,
+    )
+
+    try:
+        inv = load_inventory(args.scope)
+    except ScopeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    cases, sha = {}, ""
+    root = args.corpus or corpus_root_from_env()
+    if root:
+        file_bindings = {}
+        if args.bindings:
+            try:
+                file_bindings = yaml.safe_load(args.bindings.read_text()) or {}
+            except OSError as exc:
+                print(f"cannot read {args.bindings}: {exc}", file=sys.stderr)
+                return 2
+        # `inventory_seeds` is the layer the CLI never passed. Without it `canaries`
+        # is empty, so every `contains` rubric grades as STRUCTURAL where the
+        # engagement's own canary would have made it CANARY -- the top of the ladder
+        # reported as the second rung, on every extraction case in the library.
+        bindings, canaries = resolve_bindings(
+            file_bindings=file_bindings,
+            inventory_seeds=dict(getattr(inv, "seeds", {}) or {}))
+        try:
+            cases, corpus, _ = load_chat_cases(root, bindings=bindings,
+                                               canaries=canaries,
+                                               have_collector=args.collector)
+        except CorpusError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        sha = corpus.sha
+
+    host = args.target
+    if not host:
+        domains = list(getattr(inv, "allowed_domains", ()) or ())
+        host = domains[0] if len(domains) == 1 else ""
+
+    with contextlib.ExitStack() as stack:
+        collector = None
+        if args.collector:
+            try:
+                # The inventory goes in because the collector's bind gate reads it:
+                # anything but loopback needs the engagement to have signed for a
+                # service the operator runs on someone else's behalf.
+                collector = stack.enter_context(
+                    CallbackCollector(host=args.collector_host, inventory=inv))
+            except CollectorRefused as exc:
+                print(str(exc), file=sys.stderr)
+                return 2
+        pf = EngagementPreflight(
+            inv=inv, cases=cases, corpus_sha=sha, verified=True,
+            host=host, port=args.port, path=getattr(inv, "chat_path", "/chat"),
+            tls=bool(getattr(inv, "tls", False)),
+            verify=not args.insecure and bool(getattr(inv, "verify_tls", True)),
+            trials=args.trials,
+            collector=collector, advertised_callback=args.advertise,
+            have_tool_visibility=args.tool_visibility, have_judge=args.judge,
+            # `--mock` stands in for the whole remote path, not only the send. A
+            # rehearsal that still resolves and connects for real is not a rehearsal:
+            # it fails at DNS against a hostname the operator invented, and the shape
+            # of the readout -- which is the thing being rehearsed -- never appears.
+            sender=mock_sender(args.mock) if args.mock else None,
+            resolver=(lambda h: "203.0.113.1") if args.mock else None,
+            connector=(lambda *a: None) if args.mock else None)
+        results = pf.run()
+
+    print(render(results, title=f"preflight -- {inv.project}"))
+    failures = [r for r in results if r.status is Status.FAIL]
+    if failures:
+        # Flushed before stderr: redirected stdout is block-buffered while stderr is
+        # not, so without this the summary lands ABOVE the table it summarises.
+        sys.stdout.flush()
+        print(f"\n{len(failures)} check(s) say do not start: "
+              f"{', '.join(r.name for r in failures)}", file=sys.stderr)
+    # Non-zero when there is something to fix, so this can gate a pipeline. A
+    # preflight that exited 0 because it successfully established that there was no
+    # authorization would be the defect this command exists to prevent.
+    return 1 if failures else 0
 
 
 def _export(args: argparse.Namespace) -> int:

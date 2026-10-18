@@ -178,7 +178,7 @@ CANARY_PLACEHOLDERS = ("SECRET_MARKER", "DATA_CANARY", "RESTRICTED_ACTION_MARKER
 #: Rungs that measure cost rather than disclosure. A consumption case at ten trials
 #: plus ten controls is not a measurement, it is a load test nobody agreed to run:
 #: one long reply is a finding, a thousand is an outage we caused.
-_EXPENSIVE_RUNGS = ("response_length", "tool_call_count")
+EXPENSIVE_RUNGS = ("response_length", "tool_call_count")
 CONSUMPTION_TRIALS = 2
 
 #: What a minted placeholder expands to: the per-trial seed syntax `_seeded` reads.
@@ -801,7 +801,7 @@ def to_chat_case(case: CorpusCase, rubrics: dict[str, dict], *,
         # binding, which "an unspecified canary is missing" does not.
         needs.append("binding:" + ",".join(missing))
 
-    if {k for rung in oracles for k in rung} & set(_EXPENSIVE_RUNGS):
+    if {k for rung in oracles for k in rung} & set(EXPENSIVE_RUNGS):
         trials = min(trials, CONSUMPTION_TRIALS)
 
     seed_note = ""

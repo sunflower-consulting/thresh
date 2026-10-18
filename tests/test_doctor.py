@@ -168,3 +168,27 @@ def test_the_readout_opens_no_socket(monkeypatch):
     monkeypatch.setattr(socket, "socket", refuse)
     monkeypatch.setattr(socket, "create_connection", refuse)
     report()
+
+
+@pytest.mark.parametrize("rung", sorted(doctor.ENGAGEMENT_RUNGS))
+def test_a_rung_whose_availability_is_an_engagement_fact_is_not_called_available(rung):
+    """The defect this file's module was rewritten to fix, one rung over.
+
+    `status` was the constant "available" for every rung but JUDGE, while the same
+    line said the rung needs a seeded token, or a listener the target can reach, or
+    an agent that reports its own tool calls. Those are facts about an engagement,
+    and this command opens no socket and reads no scope document, so it cannot know
+    any of them -- and it is the command the README tells a reader to believe over
+    the README.
+    """
+    row = next(ln for ln in report().splitlines() if rung in ln)
+    assert "available" not in row, f"{rung} cannot be claimed by this command"
+    assert "per engagement" in row
+    assert "stem preflight" in report(), "and it has to say what does measure them"
+
+
+def test_the_one_rung_that_needs_nothing_is_still_called_available():
+    """STRUCTURAL needs a deterministic matcher and nothing else, so hedging it
+    would be the opposite error: a readout that qualifies everything says nothing."""
+    row = next(ln for ln in report().splitlines() if "STRUCTURAL" in ln)
+    assert "available" in row

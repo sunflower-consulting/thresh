@@ -31,7 +31,11 @@ ROUTABLE = TargetRef(ip="8.8.8.8")
 
 def _req(**kw) -> ToolRequest:
     kw.setdefault("project", "lab")
-    kw.setdefault("tool", "chat_send")
+    # `chat_say` because that is what the tool is called. This said `chat_send`,
+    # which no tool in the package answers to, and it passed only because the
+    # fixture inventory permitted the same fiction -- so every test in this file
+    # exercised the gate with a name that could never have reached a target.
+    kw.setdefault("tool", "chat_say")
     kw.setdefault("action_class", ActionClass.ACTIVE)
     return ToolRequest(**kw)
 
@@ -238,7 +242,7 @@ def test_a_field_the_scope_model_does_not_know_is_rejected():
     from sunflower_stem.schemas.target import AuthorizationRecord
 
     with pytest.raises(ValidationError, match="extra"):
-        ToolRequest(project="lab", tool="chat_send",
+        ToolRequest(project="lab", tool="chat_say",
                     action_class=ActionClass.ACTIVE, capability="out_of_band_callback")
 
     with pytest.raises(ValidationError, match="extra"):
@@ -256,5 +260,5 @@ def test_a_mistyped_budget_cannot_quietly_become_unlimited(lab_inventory):
     with pytest.raises(ValidationError, match="extra"):
         lab_inventory.model_copy(update={}).__class__(
             project="lab", allowed_cidrs=("127.0.0.1/32",),
-            allowed_tools=("chat_send",), max_messages=10,
+            allowed_tools=("chat_say",), max_messages=10,
             authorization=lab_inventory.authorization)

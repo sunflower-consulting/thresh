@@ -280,3 +280,65 @@ def test_a_fetch_reports_either_a_status_or_a_reason_never_neither():
             '![a](https://evil.example/x) ![b](file:///etc/passwd)'):
         assert isinstance(f, Fetch)
         assert f.refused or f.status is not None
+
+
+def test_a_collector_reachable_from_outside_needs_the_engagement_to_have_signed():
+    """The gate this module's docstring has always claimed and never had.
+
+    It declares `CALLBACK_CAPABILITY` and says the collector "is gated by" it, and
+    nothing read the constant: `CallbackCollector(host="0.0.0.0").start()` bound
+    every interface with no scope document consulted. A routable collector is a
+    service the operator runs on someone else's behalf, which is what an engagement
+    signs for.
+    """
+    from datetime import date
+
+    import pytest
+
+    from sunflower_stem.collector import (
+        CALLBACK_CAPABILITY,
+        CallbackCollector,
+        CollectorRefused,
+    )
+    from sunflower_stem.schemas.target import AuthorizationRecord, TargetInventory
+
+    def _inv(**caps):
+        return TargetInventory(
+            project="p", allowed_tools=("chat_say",), capabilities=caps,
+            authorization=AuthorizationRecord(
+                authorized_by="a", authorized_for="b", scope_summary="s",
+                granted_on=date(2026, 1, 1), reference="r"))
+
+    # Fail closed: the spellings that read like a default and mean every interface.
+    for host in ("0.0.0.0", "::", ""):
+        with pytest.raises(CollectorRefused, match=CALLBACK_CAPABILITY):
+            CallbackCollector(host=host).start()
+
+    # An inventory that does not enable it is no better than none, and says so.
+    with pytest.raises(CollectorRefused, match="does not enable it"):
+        CallbackCollector(host="0.0.0.0", inventory=_inv(plant_content=True)).start()
+
+    # Loopback never needs a signature: nothing outside the machine can reach it.
+    # `::1` is in the gate's loopback set and is deliberately not bound here: the
+    # server is `ThreadingHTTPServer`, whose address family is IPv4, so an IPv6
+    # loopback bind fails on the socket rather than on the gate. That is a separate
+    # and pre-existing gap, and asserting it works would hide it.
+    from sunflower_stem.collector import _is_loopback
+
+    assert _is_loopback("::1"), "the gate must not refuse IPv6 loopback"
+    for host in ("127.0.0.1", "localhost"):
+        col = CallbackCollector(host=host)
+        try:
+            col.start()
+            assert col.running
+        finally:
+            col.stop()
+
+    # And the signed engagement may bind what it signed for.
+    signed = CallbackCollector(host="127.0.0.1",
+                               inventory=_inv(**{CALLBACK_CAPABILITY: True}))
+    try:
+        signed.start()
+        assert signed.running
+    finally:
+        signed.stop()
