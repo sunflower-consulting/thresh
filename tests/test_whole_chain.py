@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from tests.paths import DOC_ENGINE
+from tests.paths import DOC_ENGINE, HAVE_DOC_ENGINE
 
 from sunflower_thresh import runbundle
 from sunflower_thresh.consolidate import write as consolidate
@@ -200,8 +200,7 @@ def test_consolidation_is_idempotent_over_a_real_run(chain):
 
 # --- and the consuming repository accepts them ------------------------------------
 
-@pytest.mark.skipif(not (DOC_ENGINE / "schema").is_dir(),
-                    reason="the report renderer is a separate repository")
+@pytest.mark.skipif(not HAVE_DOC_ENGINE, reason="the report renderer is a separate repository")
 def test_both_files_validate_against_the_renderers_own_schemas(chain):
     """The end of the chain, and the only check that the agreed shape is agreed. Both
     schemas live in the other repository and are read from there rather than copied,
@@ -219,8 +218,7 @@ def test_both_files_validate_against_the_renderers_own_schemas(chain):
             + "; ".join(f"{list(e.path)}: {e.message}" for e in errors[:3]))
 
 
-@pytest.mark.skipif(not (DOC_ENGINE / "schema").is_dir(),
-                    reason="the report renderer is a separate repository")
+@pytest.mark.skipif(not HAVE_DOC_ENGINE, reason="the report renderer is a separate repository")
 def test_the_renderer_declares_every_revision_key_the_mapping_emits(chain):
     """The catalogue was renamed, and both spellings are emitted while the renderer
     catches up. Neither may be one the renderer does not declare, because its schema

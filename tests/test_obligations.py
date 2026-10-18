@@ -28,7 +28,7 @@ import hashlib
 from pathlib import Path
 
 import pytest
-from tests.paths import CORPUS
+from tests.paths import CORPUS, HAVE_DOC_ENGINE
 from tests.paths import DOC_ENGINE_SNAPSHOT as DOC_ENGINE
 
 from sunflower_thresh.obligations import (
@@ -357,8 +357,7 @@ def test_the_vendored_file_is_the_sha_this_package_recorded():
         "change, because a report cites one and renders from the other")
 
 
-@pytest.mark.skipif(not DOC_ENGINE.is_file(),
-                    reason="the report renderer is a separate repository")
+@pytest.mark.skipif(not HAVE_DOC_ENGINE, reason="the report renderer is a separate repository")
 def test_the_renderer_holds_the_same_bytes():
     """Otherwise a report cites obligation text its own appendix does not contain.
 

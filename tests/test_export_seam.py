@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from tests.paths import DOC_ENGINE
+from tests.paths import DOC_ENGINE, HAVE_DOC_ENGINE
 
 from sunflower_thresh import runbundle
 from sunflower_thresh.consolidate import NEVER_READ, collect
@@ -224,7 +224,7 @@ def test_the_consolidated_file_names_every_run_it_drew_from(tmp_path):
 
 # --- the consumer contract -------------------------------------------------------
 
-@pytest.mark.skipif(not DOC_ENGINE.is_dir(),
+@pytest.mark.skipif(not HAVE_DOC_ENGINE,
                     reason="no doc-engine checkout beside this one")
 def test_every_field_emitted_is_one_the_consumer_allows(tmp_path):
     """The consuming schema is `additionalProperties: false`, so a field this
@@ -548,7 +548,7 @@ def test_both_machine_files_reach_the_engagement_root(tmp_path, capsys):
     assert CONTROL_MAPPING in out
 
 
-@pytest.mark.skipif(not DOC_ENGINE.is_dir(), reason="the renderer is another repo")
+@pytest.mark.skipif(not HAVE_DOC_ENGINE, reason="the report renderer is a separate repository")
 def test_the_control_mapping_satisfies_the_consumer_contract(tmp_path):
     """Structural, so it runs without the renderer's own validator installed:
     every key the schema requires is present, every status is in its closed enum,
@@ -583,7 +583,7 @@ def test_the_control_mapping_satisfies_the_consumer_contract(tmp_path):
             assert row.get("findings")
 
 
-@pytest.mark.skipif(not DOC_ENGINE.is_dir(), reason="the renderer is another repo")
+@pytest.mark.skipif(not HAVE_DOC_ENGINE, reason="the report renderer is a separate repository")
 def test_the_control_mapping_passes_the_renderers_own_validator(tmp_path):
     """The structural test above states the rules in this repository's words. This
     one hands the file to the renderer's actual validator, so the two cannot drift."""

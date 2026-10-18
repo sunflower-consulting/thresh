@@ -63,4 +63,10 @@ def _renderer_snapshot() -> Path:
 DOC_ENGINE_SNAPSHOT = _renderer_snapshot()
 
 HAVE_CORPUS = (CORPUS / "cases").is_dir()
-HAVE_DOC_ENGINE = (DOC_ENGINE / "schema").is_dir()
+#: A file every renderer-contract test actually reads, not just the directory that
+#: would contain it. A failed `actions/checkout` of another repository leaves the
+#: target directory BEHIND AND EMPTY, so a directory-shaped predicate said "present"
+#: and the tests then died on FileNotFoundError instead of skipping. Measured in CI.
+DOC_ENGINE_MARKER = DOC_ENGINE / "schema" / "control-mapping.schema.json"
+
+HAVE_DOC_ENGINE = DOC_ENGINE_MARKER.is_file()
