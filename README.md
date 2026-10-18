@@ -158,7 +158,8 @@ There is no `closed` finding state and this does not add one.
 Closure is a property of a pair of runs rather than of a finding, so every bucket is derived from the two bundles and nothing reads a status anybody typed.
 
 A lead cannot become a finding, and that is structural rather than a convention: there is nowhere on a lead to put a state or a severity, the other tool's verdict survives only as a string in its own words, and `thresh consolidate` excludes the leads directory in code.
-Neither tool's report format carries enough version information to check - garak's carries none at all, and its entry format has changed between releases - so a report whose rows yield no lead is refused rather than reported as a clean scan, naming the entry types and keys it actually saw.
+Neither tool's report format carries enough version information to check - garak's carries none at all, and its entry format has changed between releases - so a report whose rows this reader cannot understand is refused rather than reported as a clean scan, naming the entry types and keys it actually saw.
+A clean scan needs no flag: checked against real garak reports, a run where every row is understood and none holds a hit is an ordinary result, and refusing those would only train an operator to pass the override by reflex.
 
 `thresh export` writes two machine files per run, not one.
 The measurements are the rates; the control mapping is what those rates mean against the duties the client carries, and it is written whenever the engagement says which regimes those are.

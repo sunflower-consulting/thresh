@@ -274,10 +274,12 @@ def _build_parser() -> argparse.ArgumentParser:
                            "leads/triage.yaml under the current directory, which "
                            "`thresh consolidate` excludes in code.")
     lead.add_argument("--allow-nothing", action="store_true",
-                      help="accept a report whose rows yield no lead. Refused by "
-                           "default: neither tool's format carries enough version "
-                           "information to check, so a reader that silently found "
-                           "nothing is indistinguishable from a format change.")
+                      help="accept a report whose rows this reader could not "
+                           "understand. A clean scan needs no flag: a report whose "
+                           "rows are all understood and hold no hit is an ordinary "
+                           "result. This is for one whose SHAPE has moved, which "
+                           "neither tool's format carries the version information "
+                           "to detect -- garak's carries none at all.")
     lead.set_defaults(func=_leads)
 
     dif = sub.add_parser(

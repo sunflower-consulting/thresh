@@ -35,6 +35,7 @@ import json
 import pytest
 
 from sunflower_thresh.leads import (
+    GARAK_ENTRY_TYPES,
     GARAK_EVALUATED,
     LEAD_CASE_PREFIX,
     PROBE_DECLINED,
@@ -511,3 +512,67 @@ def test_the_written_document_records_what_was_read_and_not_only_what_was_found(
     assert doc["read"]["garak"]["rows"] == 2
     assert doc["read"]["garak"]["leads"] == 1
     assert doc["read"]["garak"]["not_a_lead"], "and why the other row was not one"
+
+
+# --- checked against real reports, which corrected the rule ----------------------
+
+def test_a_clean_scan_is_not_refused_when_every_row_was_understood(tmp_path):
+    """The rule used to be "rows but no leads, so refuse", and real garak reports
+    showed it was wrong. Two of garak's own test fixtures are legitimate clean scans
+    -- every attempt at status 1, every eval all-passed -- and every row in them is
+    perfectly understood. Refusing those made the ordinary outcome an error, which
+    would have trained an operator to pass `--allow-nothing` by reflex: precisely how
+    the refusal stops working on the day it matters.
+
+    The question is comprehension, not lead count.
+    """
+    path = _garak(tmp_path,
+                  {"entry_type": "start_run setup", "entry_type_ok": True},
+                  {"entry_type": "init", "garak_version": "0.14.0"},
+                  _attempt(status=1, uuid="a1"),
+                  _attempt(detector_results={"d": [0.0, 0.0]}, uuid="a2"),
+                  {"entry_type": "eval", "probe": "dan.Dan_11_0",
+                   "detector": "dan.DAN", "passed": 10, "total_evaluated": 10,
+                   "total_processed": 10, "fails": 0, "nones": 0},
+                  {"entry_type": "completion", "end_time": "t"})
+    res = read_garak(path)          # no allow flag
+    assert res.interpreted == 0
+    assert res.baffled == 0
+    assert res.comprehended == res.rows == 6
+
+
+def test_a_format_change_is_still_refused(tmp_path):
+    """And the refusal it exists for still fires, on the shape that means the
+    reader has fallen behind rather than the target having held."""
+    path = _garak(tmp_path,
+                  {"entry_type": "probe_summary_v2", "probe_id": "dan", "z": 0.3},
+                  {"entry_type": "probe_summary_v2", "probe_id": "xss", "z": 0.1})
+    with pytest.raises(LeadError) as exc:
+        read_garak(path)
+    assert "understood none of them" in str(exc.value)
+    assert "probe_summary_v2 x2" in str(exc.value)
+
+
+def test_the_entry_types_a_real_report_carries_are_all_known():
+    """Read off three real garak reports (its own tests/_assets fixtures) rather
+    than from the documentation, which lists three types and omits four of these.
+    `plugin_cache` was unknown until then and showed up as a baffled row."""
+    for kind in ("start_run setup", "init", "plugin_cache", "attempt", "eval",
+                 "completion", "digest"):
+        assert kind in GARAK_ENTRY_TYPES, kind
+
+
+def test_the_fields_a_real_eval_row_carries_are_the_ones_read(tmp_path):
+    """A real eval row carries `probe`, `detector`, `passed`, `total_evaluated`,
+    `total_processed`, `fails` and `nones`. The published reference documents
+    neither `probe` nor `detector`, so the reader looks for the probe under several
+    keys -- and a real report does carry `probe`, which is what made that worth
+    checking rather than assuming."""
+    path = _garak(tmp_path,
+                  {"entry_type": "eval", "probe": "dan.Dan_11_0",
+                   "detector": "dan.DAN", "passed": 37, "total_evaluated": 50,
+                   "total_processed": 50, "fails": 13, "nones": 0})
+    res = read_garak(path)
+    assert res.interpreted == 1
+    assert res.leads[0].probe == "dan.Dan_11_0"
+    assert "37 of 50" in res.leads[0].flagged

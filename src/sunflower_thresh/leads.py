@@ -97,7 +97,7 @@ SOURCES = ("garak", "promptfoo")
 #: than ignored, because the next format change arrives as exactly that.
 GARAK_ENTRY_TYPES = frozenset({
     "start_run setup", "init", "attempt", "eval", "digest", "probe_summary",
-    "completion", "config",
+    "completion", "config", "plugin_cache",
 })
 
 #: garak attempt statuses, from its reference: 0 not sent, 1 response but not
@@ -278,13 +278,24 @@ class ReadResult:
     #: {why: how many}. A row that produced no lead is counted under a reason, so
     #: "no leads" can always be told apart from "nothing was understood".
     skipped: dict[str, int] = field(default_factory=dict)
+    #: Rows whose SHAPE this reader could not read: an entry type it does not know,
+    #: a row missing the fields its type is supposed to carry, a line that is not
+    #: JSON. Counted apart from the rows it understood and found nothing in,
+    #: because only this number means "the format may have moved".
+    baffled: int = 0
 
-    def note(self, why: str) -> None:
+    def note(self, why: str, *, understood: bool = True) -> None:
         self.skipped[why] = self.skipped.get(why, 0) + 1
+        if not understood:
+            self.baffled += 1
 
     @property
     def interpreted(self) -> int:
         return len(self.leads)
+
+    @property
+    def comprehended(self) -> int:
+        return self.rows - self.baffled
 
 
 def read_garak(path: str | Path, *, allow_unreadable: bool = False) -> ReadResult:
@@ -311,18 +322,18 @@ def read_garak(path: str | Path, *, allow_unreadable: bool = False) -> ReadResul
             row = json.loads(line)
         except json.JSONDecodeError:
             out.rows += 1
-            out.note("not JSON")
+            out.note("not JSON", understood=False)
             continue
         if not isinstance(row, dict):
             out.rows += 1
-            out.note("not an object")
+            out.note("not an object", understood=False)
             continue
         out.rows += 1
         kind = str(row.get("entry_type") or "")
         seen_types[kind or "(none)"] = seen_types.get(kind or "(none)", 0) + 1
         seen_keys.update(map(str, row))
         if kind not in GARAK_ENTRY_TYPES:
-            out.note(f"unknown entry_type {kind!r}")
+            out.note(f"unknown entry_type {kind!r}", understood=False)
             continue
         lead = _garak_lead(row, n, out)
         if lead is not None:
@@ -345,7 +356,7 @@ def _garak_lead(row: dict, n: int, out: ReadResult) -> Lead | None:
             return None
         detectors = row.get("detector_results")
         if not isinstance(detectors, dict) or not detectors:
-            out.note("attempt with no detector_results")
+            out.note("attempt with no detector_results", understood=False)
             return None
         hits = {name: scores for name, scores in detectors.items()
                 if _any_positive(scores)}
@@ -354,7 +365,7 @@ def _garak_lead(row: dict, n: int, out: ReadResult) -> Lead | None:
             return None
         probe = _garak_probe(row)
         if not probe:
-            out.note("attempt that names no probe")
+            out.note("attempt that names no probe", understood=False)
             return None
         return Lead(source="garak", probe=probe, row=n,
                     flagged=f"garak detectors {', '.join(sorted(hits))} scored above 0",
@@ -364,14 +375,14 @@ def _garak_lead(row: dict, n: int, out: ReadResult) -> Lead | None:
         total = row.get("total_evaluated")
         passed = row.get("passed")
         if not isinstance(total, int) or not isinstance(passed, int) or total <= 0:
-            out.note(f"{kind} row with no usable passed/total_evaluated")
+            out.note(f"{kind} row with no usable passed/total_evaluated", understood=False)
             return None
         if passed >= total:
             out.note(f"{kind} row where everything passed")
             return None
         probe = _garak_probe(row)
         if not probe:
-            out.note(f"{kind} row that names no probe")
+            out.note(f"{kind} row that names no probe", understood=False)
             return None
         return Lead(source="garak", probe=probe, row=n,
                     flagged=f"garak scored {passed} of {total} evaluated as passing",
@@ -432,7 +443,7 @@ def read_promptfoo(path: str | Path, *,
             continue
         probe = _promptfoo_plugin(row)
         if not probe:
-            out.note("failing row that identifies no plugin")
+            out.note("failing row that identifies no plugin", understood=False)
             continue
         out.leads.append(Lead(
             source="promptfoo", probe=probe, row=n,
@@ -665,20 +676,28 @@ def _counts(d: dict[str, int]) -> str:
 
 def _refuse_if_nothing_understood(p: Path, out: ReadResult, allow: bool, *,
                                   what: str, keys: list[str], tool: str) -> None:
-    """A report with rows that yields no lead is a parse failure, not a clean scan.
+    """Refuse a report this reader could not READ. Not one that found nothing.
 
-    The same defect as a short corpus load and refused the same way. Neither format
-    carries enough version information to check in advance -- garak carries none at
-    all -- so this is the only place a format change can announce itself, and the
-    message has to name what was actually seen or the next person debugs blind.
+    The rule used to be "rows but no leads", and real garak reports taught me it was
+    wrong: two of its own test fixtures are legitimate clean scans -- every attempt
+    at status 1, every eval all-passed -- and every row in them is perfectly
+    understood. Refusing those made the ordinary outcome an error and would have
+    trained an operator to pass `--allow-nothing` by reflex, which is precisely how
+    the refusal stops working on the day it matters.
+
+    So the question is comprehension. A row this reader positively recognised and
+    found nothing in is a result; a row whose entry type it does not know, or which
+    is missing the fields its own type should carry, is a gap -- and neither format
+    carries enough version information to find that out any other way, garak's
+    carrying none at all.
     """
     if out.rows == 0:
         raise LeadError(f"{p}: no rows at all. An empty report is not a clean scan")
-    if out.leads or allow:
+    if out.leads or allow or out.baffled == 0:
         return
     raise LeadError(
-        f"{p}: read {out.rows} row(s) from {tool} and understood none of them as a "
-        f"lead, which is how a format change reads as a clean scan. Saw {what}; "
-        f"top-level keys {', '.join(keys) or 'none'}. Reasons: "
+        f"{p}: read {out.rows} row(s) from {tool}, understood none of them, and "
+        f"found no lead -- which is how a format change reads as a clean scan. Saw "
+        f"{what}; top-level keys {', '.join(keys) or 'none'}. Reasons: "
         f"{_counts(out.skipped)}. If the scan genuinely found nothing, pass "
         f"--allow-nothing and that fact is recorded")
