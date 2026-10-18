@@ -102,16 +102,19 @@ That is the comparison worth having, and it needs a control arm of its own: a gu
 ## Commands
 
 ```
-stem demo       run the built-in cases and their controls against the bundled target
-stem lab        serve the bundled vulnerable application on loopback
-stem doctor     report what this installation can and cannot prove
-stem judge      report the judge rung's configuration and its rubric library
-stem calibrate  check whether each judge rubric's threshold is calibrated
-stem export     write one run's measurements where a document generator reads them
+stem demo         run the built-in cases and their controls against the bundled target
+stem lab          serve the bundled vulnerable application on loopback
+stem doctor       report what this installation can and cannot prove
+stem corpus       load an external case library and report what is reachable
+stem judge        report the judge rung's configuration and its rubric library
+stem calibrate    check whether each judge rubric's threshold is calibrated
+stem export       write one run's measurements where a document generator reads them
 stem consolidate  build an engagement's measurements from its quotable runs
 ```
 
 `stem doctor` is authoritative. If it disagrees with this README, believe it.
+
+`stem corpus` reports two numbers that are easy to conflate and must not be: how many cases loaded, and how many can actually be sent. A case whose payload carries an unbound placeholder is reported unreachable and is not sent, because a half-expanded prompt arriving at a client is worse than a case that did not run. And a library where some cases fail to parse is refused outright rather than loaded short - the failure mode this command exists to prevent is a run that silently measured 243 of 244 cases and reported a rate over the wrong denominator.
 
 `stem calibrate` needs no endpoint and no GPU to be useful. With nothing configured it runs a dry pass against three constant judges - one that always says yes, one that always says no, and one that answers the question while leaving the number out - and the read-out has to report each of those as a different fault. That is the inverse of the usual success condition, and it is the point: a detector that cannot tell a judge that disagreed from one that never answered will send you to tune the wrong thing, and a live run cannot reveal that because a live run has no ground truth.
 

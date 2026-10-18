@@ -253,8 +253,21 @@ class ChatCase(BaseModel):
     owasp: str = ""
     #: Key into the benchmark feasibility map; coverage is reported per taxon.
     taxon: str = ""
-    #: Technique family, for the fleet's claim keyspace: two workers trying
-    #: "roleplay" with different wording spend twice for one answer.
+    #: The risk in the OWASP Top 10 for Agentic Applications, ASI01 to ASI10, where
+    #: the case is about an agent rather than a model.
+    #:
+    #: A SECOND axis and not a finer one: `owasp` says what the input did and `asi`
+    #: says what it cost an agent that acts, so a case that is both an indirect
+    #: injection and an agent goal hijack is described honestly only by carrying
+    #: both.
+    #:
+    #: Empty means something different here from an empty `taxon`. A missing taxon
+    #: is a GAP, reported as unclassified. A missing `asi` is a DECISION: most cases
+    #: are not agentic risks, and an id on every case would make the field mean
+    #: nothing on the ones that need it. So nothing should grow an "unmapped asi"
+    #: count by analogy -- it would report deliberate omissions as holes.
+    asi: str = ""
+    #: Technique family, for grouping techniques a defence cannot tell apart.
     family: str = ""
     cwe: str = ""
     title: str = ""

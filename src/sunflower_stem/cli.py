@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from sunflower_stem import __version__
 from sunflower_stem.calibrate import MOCK_JUDGES
+from sunflower_stem.corpus import CORPUS_ENV, corpus_root_from_env
 from sunflower_stem.judge import ENDPOINT_ENV, MODEL_ENV
 
 
@@ -131,6 +133,34 @@ def _build_parser() -> argparse.ArgumentParser:
                     "makes testing the same case five times safe.")
     con.add_argument("engagement_dir")
     con.set_defaults(func=_consolidate)
+
+    cor = sub.add_parser(
+        "corpus", help="load a corpus checkout and report what it would run",
+        description="Read a corpus of test cases, bind its placeholders to this "
+                    "engagement's own values, and report what would run and what "
+                    "would not. Sends nothing. A case with an unbound placeholder "
+                    "is reported UNREACHABLE rather than sent half-expanded, which "
+                    "is the point of looking before a run.")
+    cor.add_argument("--corpus", metavar="DIR", default="",
+                     help=f"the checkout. Defaults to ${CORPUS_ENV}.")
+    cor.add_argument("--bindings", metavar="FILE", type=Path,
+                     help="YAML of placeholder values. Lowest precedence: a plan "
+                          "beats it and the signed inventory beats both.")
+    cor.add_argument("--collector", action="store_true",
+                     help="the engagement has a callback collector, so the cases "
+                          "that need one become reachable. Their URL is minted per "
+                          "trial and cannot be hand-bound: a hardcoded host proves "
+                          "something fetched it, not which case caused the fetch.")
+    cor.add_argument("--only", metavar="IDS",
+                     help="comma-separated case ids, instead of every active case")
+    cor.add_argument("--show", action="store_true",
+                     help="print each case's expanded turns. This is the "
+                          "sign-off view: what would actually be sent.")
+    cor.add_argument("--allow-broken", action="store_true",
+                     help="proceed when a case fails to load. Refused by default, "
+                          "because 243 of 244 reads exactly like a corpus and the "
+                          "case it dropped is the case nobody ran.")
+    cor.set_defaults(func=_corpus)
     return p
 
 
@@ -318,6 +348,106 @@ def _calibrate(args: argparse.Namespace) -> int:
     print(render(verdicts, judge_name=f"{model} at {endpoint}", replies=len(replies)))
     # Non-zero when there is something to fix, so this can gate a pipeline.
     return 1 if any(not v.ok for v in verdicts) else 0
+
+
+def _corpus(args: argparse.Namespace) -> int:
+    """Report what a corpus would run. Sends nothing."""
+    from collections import Counter
+
+    import yaml
+
+    from sunflower_stem.corpus import (
+        COLLECTOR_PLACEHOLDERS,
+        CorpusError,
+        load_chat_cases,
+        resolve_bindings,
+    )
+
+    root = args.corpus or corpus_root_from_env()
+    if not root:
+        print(f"no corpus. Pass --corpus or set ${CORPUS_ENV}.", file=sys.stderr)
+        return 2
+    file_bindings = {}
+    if args.bindings:
+        try:
+            file_bindings = yaml.safe_load(args.bindings.read_text()) or {}
+        except OSError as exc:
+            print(f"cannot read {args.bindings}: {exc}", file=sys.stderr)
+            return 2
+    bindings, canaries = resolve_bindings(file_bindings=file_bindings)
+
+    try:
+        cases, corpus, skipped = load_chat_cases(
+            root, bindings=bindings, canaries=canaries,
+            have_collector=args.collector,
+            only=[c.strip() for c in args.only.split(",")] if args.only else None,
+            allow_broken=args.allow_broken)
+    except CorpusError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    unreachable = {cid: [n for n in c.needs if n.startswith("binding:")]
+                   for cid, c in cases.items()}
+    blocked = {cid: n for cid, n in unreachable.items() if n}
+    print(f"corpus      {corpus.root}  at {corpus.sha}")
+    print(f"cases       {len(corpus)} loaded, {len(corpus.broken)} broken")
+    print(f"selected    {len(cases)}, {len(skipped)} not selected")
+    families: dict[str, list[str]] = {}
+    for cid, why in sorted(skipped.items()):
+        families.setdefault(why.split(":", 1)[0].strip(), []).append(cid)
+    for family, ids in sorted(families.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        named = ", ".join(ids[:4]) + (f", +{len(ids) - 4} more" if len(ids) > 4 else "")
+        print(f"            {len(ids)}x {family}: {named}")
+    print(f"unbound     {len(blocked)} case(s) would be UNREACHABLE for want of a "
+          f"binding")
+    missing = Counter(name for needs in blocked.values() for need in needs
+                      for name in need.removeprefix("binding:").split(","))
+    # Two different operator actions, and conflating them sends somebody to write a
+    # value that must not be written. A collector placeholder is minted per trial;
+    # binding it by hand gives every case the same URL, and a hit on a shared host
+    # proves that something fetched it rather than that this case caused the fetch.
+    for label, names in (
+            ("write a value", [(k, v) for k, v in missing.most_common()
+                               if k not in COLLECTOR_PLACEHOLDERS]),
+            ("run --collector", [(k, v) for k, v in missing.most_common()
+                                 if k in COLLECTOR_PLACEHOLDERS])):
+        if names:
+            print(f"            {label}: " + ", ".join(
+                f"{k} ({v})" for k, v in names[:8])
+                + (f", +{len(names) - 8} more" if len(names) > 8 else ""))
+    # A reachable case is not an automatic case. A `seeded` or `inseparable` control
+    # is the corpus stating that no matched control can be SENT and why, and without
+    # a control arm nothing reaches VALIDATED -- so a count of reachable cases alone
+    # implies more than a run can deliver, which is the readout defect this tool
+    # exists to catch in other tools.
+    reachable = [c for cid, c in cases.items() if not unreachable[cid]]
+    by_kind = Counter(c.control_kind or "none" for c in reachable
+                      if not c.control_turns)
+    if by_kind:
+        print(f"controls    {sum(1 for c in reachable if c.control_turns)} of "
+              f"{len(reachable)} reachable case(s) can send a matched control")
+        for kind, n in by_kind.most_common():
+            why = {"seeded": "the control is a re-plant an operator does out of band",
+                   "inseparable": "the technique cannot be removed and leave the "
+                                  "request intact",
+                   "none": "NOBODY WROTE ONE -- this is a gap, not a declaration"}
+            print(f"            {n}x {kind}: {why.get(kind, kind)}")
+    if corpus.unmapped_taxa():
+        print(f"no taxon    {len(corpus.unmapped_taxa())} case(s): a reporting gap, "
+              f"not a reason to drop a measurement")
+    if not args.show:
+        print("\n--show prints the expanded turns, which is the sign-off view: "
+              "what would actually be sent.")
+        return 0
+    for cid in sorted(cases):
+        case = cases[cid]
+        flag = "  UNREACHABLE" if unreachable[cid] else ""
+        print(f"\n=== {cid}  {case.taxon or 'no taxon'}{flag}")
+        for i, turn in enumerate(case.turns, start=1):
+            print(f"  [{i}] {' '.join(turn.content.split())[:150]}")
+        if case.seed_note:
+            print(f"  PLANT FIRST: {' '.join(case.seed_note.split())[:150]}")
+    return 0
 
 
 def _export(args: argparse.Namespace) -> int:
