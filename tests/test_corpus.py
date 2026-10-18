@@ -26,6 +26,7 @@ import base64
 from pathlib import Path
 
 import pytest
+from tests.paths import CORPUS
 
 from sunflower_stem.cli import main as _run_cli
 from sunflower_stem.corpus import (
@@ -48,7 +49,6 @@ from sunflower_stem.corpus import (
     to_chat_case,
 )
 
-CORPUS = Path("/Users/napahlm/Projects/GitHub/seed-vault")
 needs_corpus = pytest.mark.skipif(
     not (CORPUS / "cases").is_dir(),
     reason="no seed-vault checkout; the corpus is private and this repo is public")

@@ -23,6 +23,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+from tests.paths import CORPUS
 
 from sunflower_stem.collector import CALLBACK_CAPABILITY, CallbackCollector
 from sunflower_stem.policy.decision import DenyReason
@@ -43,7 +44,6 @@ from sunflower_stem.preflight import (
 )
 from sunflower_stem.schemas.target import AuthorizationRecord, TargetInventory
 
-CORPUS = Path("/Users/napahlm/Projects/GitHub/seed-vault")
 needs_corpus = pytest.mark.skipif(
     not (CORPUS / "cases").is_dir(),
     reason="no seed-vault checkout; the corpus is private and this repo is public")

@@ -23,13 +23,12 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests.paths import DOC_ENGINE
 
 from sunflower_stem import runbundle
 from sunflower_stem.consolidate import NEVER_READ, collect
 from sunflower_stem.consolidate import write as consolidate
 from sunflower_stem.export import CASE_FIELDS, measurements, write_run
-
-DOC_ENGINE = Path("/Users/napahlm/Projects/GitHub/doc-engine")
 
 
 def _finding(case_id="INJ-D-0001", state="validated", **trials) -> dict:

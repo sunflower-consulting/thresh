@@ -28,6 +28,8 @@ import hashlib
 from pathlib import Path
 
 import pytest
+from tests.paths import CORPUS
+from tests.paths import DOC_ENGINE_SNAPSHOT as DOC_ENGINE
 
 from sunflower_stem.obligations import (
     DEFAULT_SNAPSHOT,
@@ -50,9 +52,6 @@ from sunflower_stem.obligations import (
     taxa_coverage,
     unreachable_obligations,
 )
-
-DOC_ENGINE = Path("/Users/napahlm/Projects/GitHub/doc-engine/data/trellis/snapshot.yaml")
-CORPUS = Path("/Users/napahlm/Projects/GitHub/seed-vault")
 
 
 @pytest.fixture(scope="module")
