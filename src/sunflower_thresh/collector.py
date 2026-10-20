@@ -24,6 +24,7 @@ engagement to sign rather than for a tool to assume.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import secrets
 import threading
@@ -65,14 +66,16 @@ def _why_refused(inventory) -> str:
             "would refuse every call this collector was stood up for")
 
 
-def _is_loopback(host: str) -> bool:
+def is_loopback(host: str) -> bool:
     """Loopback, or a name for it. An empty host binds every interface, so it is not.
 
     `0.0.0.0` and `::` are the dangerous spellings and the easy ones to type: they
     read like "the default" and mean "every interface this machine has".
-    """
-    import ipaddress
 
+    Shared with preflight, which used to carry its own copy. The two differed on
+    whitespace-padded hosts: this one strips, the copy did not, so ` localhost `
+    read as loopback to the collector's own refusal and as off-host to preflight.
+    """
     name = (host or "").strip().lower()
     if name in ("localhost", "localhost.localdomain"):
         return True
@@ -166,7 +169,7 @@ class CallbackCollector:
         """
         if self._server is not None:
             return self
-        if not _is_loopback(self.host) and not self._signed_for_callback():
+        if not is_loopback(self.host) and not self._signed_for_callback():
             raise CollectorRefused(
                 f"refusing to bind {self.host}: a collector reachable from outside "
                 f"this machine needs {CALLBACK_CAPABILITY!r} enabled on the "

@@ -323,9 +323,9 @@ def test_a_collector_reachable_from_outside_needs_the_engagement_to_have_signed(
     # server is `ThreadingHTTPServer`, whose address family is IPv4, so an IPv6
     # loopback bind fails on the socket rather than on the gate. That is a separate
     # and pre-existing gap, and asserting it works would hide it.
-    from sunflower_thresh.collector import _is_loopback
+    from sunflower_thresh.collector import is_loopback
 
-    assert _is_loopback("::1"), "the gate must not refuse IPv6 loopback"
+    assert is_loopback("::1"), "the gate must not refuse IPv6 loopback"
     for host in ("127.0.0.1", "localhost"):
         col = CallbackCollector(host=host)
         try:
@@ -488,3 +488,29 @@ def test_a_run_with_no_renderer_writes_no_render_entries():
     runner.trial(case.turns, {})      # renderer left as None
 
     assert not [e for e in ctx.audit.entries() if e.get("event") == "render_fetch"]
+
+
+def test_one_definition_of_loopback_serves_the_gate_and_the_preflight():
+    """Two copies of a predicate are two answers to the same question.
+
+    `preflight.py` carried its own `_is_loopback`. It read the same at a glance
+    and differed on one input: the collector's strips whitespace, the copy did
+    not. So a host of `" localhost "` -- a stray space in an env file or a
+    config line -- was loopback to the collector, which then let the bind
+    through unsigned, and off-host to preflight, which reported it as refused.
+    The operator reads preflight.
+
+    Pinned by identity, not by behaviour: a reintroduced copy that happens to
+    agree today is the same hazard, because it is free to drift tomorrow.
+    """
+    from sunflower_thresh import collector, preflight
+
+    assert preflight.is_loopback is collector.is_loopback, (
+        "preflight must not keep its own definition of loopback")
+
+    for padded, bare in ((" localhost ", "localhost"), ("\t127.0.0.1\n", "127.0.0.1")):
+        assert collector.is_loopback(padded) is True, padded
+        assert collector.is_loopback(padded) == collector.is_loopback(bare)
+
+    for host in ("", "0.0.0.0", "::", "10.0.0.1", "example.com"):
+        assert collector.is_loopback(host) is False, host

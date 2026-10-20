@@ -50,7 +50,7 @@ from pathlib import Path
 
 from sunflower_thresh import nethttp
 from sunflower_thresh import termstyle as ts
-from sunflower_thresh.collector import CALLBACK_CAPABILITY
+from sunflower_thresh.collector import CALLBACK_CAPABILITY, is_loopback
 from sunflower_thresh.corpus import CONSUMPTION_TRIALS, EXPENSIVE_RUNGS
 from sunflower_thresh.policy.decision import DenyReason
 
@@ -191,13 +191,6 @@ class CollectorReach(str, enum.Enum):
     REFUSED_OFF_HOST = "refused_off_host"
 
 
-def _is_loopback(host: str) -> bool:
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return host.lower() in ("localhost", "localhost.localdomain")
-
-
 def _local_addresses(resolver: Callable[[str], list[str]] | None = None) -> set[str]:
     """Every address this machine answers on, for the off-host refusal.
 
@@ -241,7 +234,7 @@ def probe_collector(collector, *, advertised: str = "", fetch=None,
     if not collector.hits(token):
         return CollectorReach.BROKEN, "fetched its own URL and recorded no hit"
 
-    if _is_loopback(collector.host):
+    if is_loopback(collector.host):
         return (CollectorReach.LOOPBACK_ONLY,
                 f"works, bound to {collector.netloc}")
 
