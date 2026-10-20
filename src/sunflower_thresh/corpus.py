@@ -122,8 +122,20 @@ REQUIRES_NEEDS: dict[str, str] = {
 #: payload is never delivered, the bot answers an ordinary question, the oracle does
 #: not fire, and the report says the target resisted indirect injection. It was never
 #: tested.
+#: Where indirect content can be planted. The corpus owns this vocabulary; this
+#: tuple is the copy a drift test holds it against, because an unreferenced
+#: constant is a comment and this one was already wrong: the corpus added
+#: `tool_metadata`, `agent_config` and `rendered_screen`, seven cases used them,
+#: and nothing here noticed for want of anything comparing the two.
+#:
+#: The last three are read as the agent's OWN configuration rather than as
+#: content it was asked to read, which is the distinction the corpus schema
+#: draws: `tool_output` is a result and `document` is something handed to the
+#: agent, while a tool's own description, a rules file and a rendered screen are
+#: trusted before any call is made and no output filter sees them.
 CHANNELS = ("document", "tool_output", "web_page", "email", "file_metadata",
-            "calendar", "image", "audio")
+            "calendar", "image", "audio",
+            "tool_metadata", "agent_config", "rendered_screen")
 
 CASE_STATUSES = ("draft", "active", "retired")
 

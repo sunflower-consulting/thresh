@@ -31,6 +31,9 @@ from tests.paths import CORPUS
 from sunflower_thresh.cli import main as _run_cli
 from sunflower_thresh.corpus import (
     CANARY_PLACEHOLDERS,
+    CASE_STATUSES,
+    CHANNELS,
+    CONTROL_KINDS,
     HARMFUL_RUBRIC,
     PLACEHOLDER_RE,
     REFUSAL_RUBRIC,
@@ -558,3 +561,46 @@ def test_every_corpus_case_without_a_matched_control_says_why(capsys, monkeypatc
     monkeypatch.setenv("THRESH_CORPUS", str(CORPUS))
     assert _run_cli(["corpus", "--collector"]) == 0
     assert "NOBODY WROTE ONE" not in capsys.readouterr().out
+
+
+@needs_corpus
+def test_every_vocabulary_the_corpus_uses_is_one_this_package_declares():
+    """Three tuples that nothing referenced, and one of them was already wrong.
+
+    CHANNELS, CASE_STATUSES and CONTROL_KINDS are this package's copy of
+    vocabulary the corpus owns. Nothing imports them, so nothing broke when the
+    corpus added `tool_metadata`, `agent_config` and `rendered_screen` and seven
+    cases started using them -- the tuple simply became untrue, and an
+    unreferenced constant that is untrue is worse than no constant, because the
+    next reader believes it.
+
+    This is the same drift that let an `asi` field reach 29 cases before anything
+    here could load them. The lesson taken then was to compare the two sides
+    rather than to maintain a copy by hand, so that is what this does.
+
+    It needs the corpus and therefore skips without it, which is a real limit:
+    on a machine with no checkout this guards nothing. The alternative -- a
+    hand-maintained list in the test -- would drift exactly like the tuple it is
+    checking, so skipping honestly is the better of the two.
+    """
+    corpus = load_corpus(CORPUS)
+    cases = corpus.cases.values()
+
+    checks = (
+        ("CHANNELS", CHANNELS,
+         {c.channel for c in cases if getattr(c, "channel", "")}),
+        ("CASE_STATUSES", CASE_STATUSES,
+         {c.status for c in cases if getattr(c, "status", "")}),
+        ("CONTROL_KINDS", CONTROL_KINDS,
+         {(c.control or {}).get("kind") for c in cases if (c.control or {}).get("kind")}),
+    )
+
+    problems = []
+    for name, declared, used in checks:
+        missing = sorted(used - set(declared))
+        if missing:
+            problems.append(f"{name} does not declare {missing}, which the corpus uses")
+    assert not problems, (
+        "\n  ".join(["the corpus uses vocabulary this package does not declare:"]
+                    + problems)
+        + "\n  Nothing imports these tuples, so nothing else would have failed.")
