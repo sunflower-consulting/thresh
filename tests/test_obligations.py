@@ -715,3 +715,60 @@ def test_a_scope_whose_duties_all_bind_reads_normally(snap):
     text = render(cov)
     assert "DO NOT BIND YET" not in text
     assert "bind today" in text
+
+
+def test_the_readme_numbers_still_match_the_vendored_catalogue():
+    """A public README that quotes counts has to be re-checked when they move.
+
+    The paragraph on duties that do not bind yet quotes four figures, and all
+    four are computed from the catalogue vendored inside this package. They were
+    correct when written. They will stop being correct the first time the
+    catalogue is regenerated, and nothing would have said so: a reader would see
+    confident numbers about the EU AI Act that no longer describe the data the
+    tool resolves against.
+
+    This cannot skip. The snapshot ships in the wheel, so the numbers are
+    available wherever the tests run -- unlike the cross-repository checks, which
+    skip without the other checkout and therefore guard nothing by default.
+
+    If this fails because the paragraph was reworded rather than because the
+    data moved, that is still the right outcome: the rewording needs the numbers
+    re-checked, and the message says which four to check.
+    """
+    import re
+
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
+    snap = load_snapshot()
+
+    everything = coverage(snap, [], attempted=set())
+    annex_iii = coverage(snap, [], attempted=set(), instruments=("ai-act",),
+                         system_classes=("annex-iii-high-risk",))
+
+    actual = {
+        "catalogue total": len(snap.get("obligations") or {}),
+        "not yet in force": (everything.get("not_yet_in_force") or {}).get("count"),
+        "annex iii in scope": len(annex_iii.get("obligations") or []),
+        "annex iii not yet in force": (annex_iii.get("not_yet_in_force") or {}).get("count"),
+    }
+
+    m = re.search(r"(\d+) of (\d+) obligations do not apply yet", readme)
+    assert m, ("the README paragraph quoting 'N of M obligations do not apply yet' is "
+               "gone or reworded; re-check it against "
+               f"{actual} and update this test")
+    quoted_nyf, quoted_total = int(m.group(1)), int(m.group(2))
+
+    m2 = re.search(r"that is (\d+) of the (\d+) in scope", readme)
+    assert m2, ("the README sentence quoting 'that is N of the M in scope' is gone or "
+                f"reworded; re-check it against {actual} and update this test")
+    quoted_a3_nyf, quoted_a3 = int(m2.group(1)), int(m2.group(2))
+
+    assert (quoted_total, quoted_nyf) == (actual["catalogue total"],
+                                          actual["not yet in force"]), (
+        f"README says {quoted_nyf} of {quoted_total} obligations do not apply yet; "
+        f"the vendored catalogue says {actual['not yet in force']} of "
+        f"{actual['catalogue total']}")
+    assert (quoted_a3, quoted_a3_nyf) == (actual["annex iii in scope"],
+                                          actual["annex iii not yet in force"]), (
+        f"README says {quoted_a3_nyf} of the {quoted_a3} in scope for an Annex III "
+        f"system; the catalogue says {actual['annex iii not yet in force']} of "
+        f"{actual['annex iii in scope']}")

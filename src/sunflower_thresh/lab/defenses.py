@@ -1,8 +1,18 @@
 """The lab's eleven defence configurations: four hooks, and the logic behind them.
 
-`config/labs/defenses.yaml` is the committed contract and `docs/defense-matrix.md`
-is the reasoning. This module is the behaviour, and `tests/test_lab_defenses.py`
-holds the two against each other.
+Eleven defences plus `baseline`, which is the undefended configuration, so
+`CONFIGS` holds twelve.
+
+The three files this docstring used to cite -- a committed contract yaml, a
+reasoning document and a test holding the two against each other -- exist in the
+private engine this lab was extracted from, and not here. Pointing a reader of
+THIS repository at them was worse than citing nothing. What exists here is
+`docs/lab.md` for the target as a whole and `tests/test_lab.py`, which checks
+that a benign turn and an attack turn disagree and that the strong configuration
+stops an override while still answering an ordinary question.
+
+There is deliberately no contract file on this side. The module IS the
+behaviour, and a second copy of it in yaml would be one more thing to drift.
 
 WHY ANY OF THIS. `GUARDRAILS` in server.py is three strings concatenated onto a
 system prompt, so the keystone measurement establishes that the corpus can tell a

@@ -154,8 +154,14 @@ def applicable_chat_cases(tool_names: Iterable[str],
     could change without touching the call sites.
 
     `cases` is the library to judge, defaulting to the built-ins. The corpus adapter
-    passes its own, because reachability is the same question for 112 corpus cases as
-    for 5 built-in ones and answering it twice would let the two answers drift.
+    passes its own, because reachability is the same question for a corpus case as
+    for a built-in one and answering it twice would let the two answers drift.
+
+    The counts that used to be quoted here are gone on purpose. One was simply
+    wrong -- it said five built-ins and there are six -- and the other named a
+    corpus subset that cannot be recomputed without the engagement's bindings,
+    so neither could be checked by a reader or by a test. The argument does not
+    rest on either number.
     """
     from sunflower_thresh.tools.chat import BUILTIN_CHAT_CASES
 
