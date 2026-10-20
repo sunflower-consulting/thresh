@@ -25,11 +25,11 @@ as a review-only obligation would double-count the same fact in two columns.
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
-from tests.paths import CORPUS, HAVE_DOC_ENGINE
-from tests.paths import DOC_ENGINE_SNAPSHOT as DOC_ENGINE
+from tests.paths import CORPUS, DOC_ENGINE, HAVE_DOC_ENGINE
 
 from sunflower_thresh.obligations import (
     DEFAULT_SNAPSHOT,
@@ -358,28 +358,60 @@ def test_the_vendored_file_is_the_sha_this_package_recorded():
 
 
 @pytest.mark.skipif(not HAVE_DOC_ENGINE, reason="the report renderer is a separate repository")
-def test_the_renderer_holds_the_same_bytes():
-    """Otherwise a report cites obligation text its own appendix does not contain.
+def test_the_renderer_declares_every_key_the_mapping_emits():
+    """Every key this package writes must be one the renderer declares.
 
-    This failing is not a defect in THIS package. It means the two vendored copies
-    have diverged, which happens for one release window every time the catalogue is
-    regenerated: this side takes the new file and the renderer has not yet. The
-    message says what to do, because a cross-repository failure with no instruction
-    gets worked around.
+    THIS REPLACED A BYTE-COMPARISON OF TWO VENDORED CATALOGUES, which guarded
+    nothing. The renderer never read its copy: moving the file away entirely
+    left its validator passing, its report building and its revision line
+    rendering. The obligation text a report prints travels in the mapping this
+    package writes -- citation, title, applies_from, verifiable are all rows
+    here -- so the two copies could diverge freely with no effect on any report,
+    while the test demanded they be re-synced every time the catalogue was
+    regenerated.
 
-    It runs only for somebody with both checkouts. CI deliberately does not check
-    the renderer out -- see the note in .github/workflows/ci.yml -- because a green
-    build here must not be hostage to another repository's release state.
+    THE HAZARD THAT IS REAL. `additionalProperties` is true at both levels of
+    the renderer's control-mapping schema. So a key this package emits and the
+    renderer does not declare is IGNORED rather than refused: the gate passes,
+    the build succeeds, and the information silently never reaches the report.
+    That already happened twice. The catalogue rename made the revision line
+    print "-" instead of a dataset version, and four more keys were being
+    dropped when this test was written -- `unreachable_by_any_technique` and
+    `not_yet_in_force`, which are counts a reader is entitled to, and `taxa` and
+    the per-row `in_force`.
+
+    Loud is the point. An undeclared key cannot be caught by the renderer, so it
+    has to be caught here, where the emitting side knows what it emitted.
     """
-    theirs = hashlib.sha256(DOC_ENGINE.read_bytes()).hexdigest()
-    assert theirs == SNAPSHOT_SHA256, (
-        f"the renderer's copy of the catalogue is not this one.\n"
-        f"  here:     {SNAPSHOT_SHA256[:16]}  (src/sunflower_thresh/almanac/)\n"
-        f"  renderer: {theirs[:16]}  ({DOC_ENGINE})\n"
-        f"Re-vendor it:\n"
-        f"  cp src/sunflower_thresh/almanac/snapshot.yaml {DOC_ENGINE}\n"
-        f"A report built from the renderer's copy would cite different obligation "
-        f"text than this package resolved against, and nothing else would notice.")
+    schema = json.loads(
+        (DOC_ENGINE / "schema" / "control-mapping.schema.json").read_text(encoding="utf-8"))
+    declared_top = set(schema["properties"])
+    declared_row = set(schema["properties"]["obligations"]["items"]["properties"])
+
+    # A mapping with every state present, so no key is missed for want of a row
+    # that would have carried it.
+    snap = load_snapshot()
+    doc = coverage(snap, [], attempted=set(), instruments=("ai-act",))
+
+    emitted_top = set(doc)
+    emitted_row: set[str] = set()
+    for row in doc.get("obligations", []) or []:
+        emitted_row |= set(row)
+
+    assert emitted_top, "the mapping emitted no top-level keys at all"
+    assert emitted_row, "the mapping emitted no rows, so this test checked nothing"
+
+    missing_top = sorted(emitted_top - declared_top)
+    missing_row = sorted(emitted_row - declared_row)
+    assert not (missing_top or missing_row), (
+        f"the renderer does not declare key(s) this package emits.\n"
+        f"  top level: {missing_top or 'none'}\n"
+        f"  row:       {missing_row or 'none'}\n"
+        f"Its additionalProperties is true at both levels, so an undeclared key is "
+        f"IGNORED rather than refused -- the build stays green and the value never "
+        f"reaches the report. Declare them in "
+        f"{DOC_ENGINE}/schema/control-mapping.schema.json."
+    )
 
 
 def test_the_licence_for_the_vendored_data_is_published():

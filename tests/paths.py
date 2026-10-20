@@ -44,23 +44,6 @@ CORPUS = _resolve("THRESH_CORPUS", "seed-vault", marker="cases")
 #: The report renderer, for the two cross-repository contract tests.
 DOC_ENGINE = _resolve("THRESH_DOC_ENGINE", "doc-engine", marker="schema")
 
-#: The renderer's vendored copy of the obligation catalogue, which this package's
-#: copy must match byte for byte.
-#:
-#: Both spellings, because the catalogue was renamed from `trellis` to `almanac`
-#: HERE and the renderer is a separate repository that has not been renamed yet. A
-#: rename in this repo must not relocate another repo's files -- doing so turned the
-#: byte-for-byte contract test into a silent skip, which is the failure the whole of
-#: this module exists to stop.
-def _renderer_snapshot() -> Path:
-    for flavour in ("almanac", "trellis"):
-        candidate = DOC_ENGINE / "data" / flavour / "snapshot.yaml"
-        if candidate.is_file():
-            return candidate
-    return DOC_ENGINE / "data" / "almanac" / "snapshot.yaml"
-
-
-DOC_ENGINE_SNAPSHOT = _renderer_snapshot()
 
 HAVE_CORPUS = (CORPUS / "cases").is_dir()
 #: A file every renderer-contract test actually reads, not just the directory that
