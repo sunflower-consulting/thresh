@@ -68,26 +68,6 @@ def arrow() -> str:
     return style("->", "cyan")
 
 
-def quantity(value: float, good: float = 0.75, ok: float = 0.5) -> str:
-    """Colour a normalised 0..1 metric: green strong, yellow fair, red weak."""
-    s = f"{value:.3f}"
-    if value >= good:
-        return style(s, "green")
-    if value >= ok:
-        return style(s, "yellow")
-    return style(s, "red")
-
-
-def signed(value: float) -> str:
-    """Colour a signed score: green for positive, red for negative, grey zero."""
-    s = f"{value:+.3f}"
-    if value > 0:
-        return style(s, "green")
-    if value < 0:
-        return style(s, "red")
-    return style(s, "grey")
-
-
 def good(text: str) -> str:
     return style(text, "green")
 
