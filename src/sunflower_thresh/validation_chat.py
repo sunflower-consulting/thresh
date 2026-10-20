@@ -654,6 +654,13 @@ def validate_chat_case(
                                    "reply_excerpt": (seen[turn - 1].reply if turn
                                                      else seen[-1].reply or "")[:160]})
 
+    # ONE expression for "a control arm was expected", read by the two branches
+    # below and by `truncated` further down. They were separate before, and the
+    # copy in `truncated` tested only `case.control_turns` -- so a BASELINE arm
+    # that came up short reported truncated false, and a rate resting on fewer
+    # controls than the case asked for read as complete.
+    control_expected = bool(m > 0 and (case.control_turns or arm))
+
     if case.control_turns and m > 0:
         control_kind = "matched"
         for i in range(m):
@@ -686,8 +693,10 @@ def validate_chat_case(
                        # smaller sample than the case asked for. Only the
                        # below-MIN_TRIALS branch used to say so, so a run cut from
                        # ten trials to four reported an interval as though four had
-                       # been the design.
-                       truncated=done < n or (bool(case.control_turns) and controls_done < m))
+                       # been the design. `control_expected` rather than
+                       # `case.control_turns`, because the baseline arm has no
+                       # control_turns of its own and was therefore never checked.
+                       truncated=done < n or (control_expected and controls_done < m))
     finding.trials = stats
     report.update({"asr": stats.asr, "control_asr": stats.control_asr,
                    "asr_ci": list(stats.asr_ci), "p_value": p})
