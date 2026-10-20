@@ -692,3 +692,75 @@ def test_the_manifest_is_published_only_after_the_findings_are_written(tmp_path)
         "a quotable manifest must not advertise findings that were never written")
     manifest, findings = runbundle.load(d)
     assert manifest == {} and findings == []
+
+
+# --- the rung name, not a python repr --------------------------------------------
+
+def test_the_exported_rung_is_the_name_whichever_side_of_serialisation_it_came_from():
+    """A deliverable must not carry "EvidenceStrength.CANARY".
+
+    `EvidenceStrength` mixes in int, so `str()` on a live member yields the class
+    name and the member: a python repr, in a document a client reads. A finding
+    that has been through the run bundle arrives as a plain "CANARY" instead, so
+    the exported value used to depend on which side of serialisation the caller
+    was on. The whole-chain path serialises and the direct path does not, which
+    is why the suite never saw it.
+
+    The renderer declared this field a bare string, so nothing downstream would
+    have refused the repr either. It now carries an enum of the six rung names,
+    which is the backstop for this test rather than a substitute for it.
+    """
+    from sunflower_thresh.export import _row
+    from sunflower_thresh.schemas.finding import EvidenceStrength
+
+    base = {"corpus_id": "c-1", "trials": {"trials": 10, "hits": 7}}
+
+    # the three shapes this field really arrives in
+    shapes = {
+        "live member": EvidenceStrength.CANARY,
+        "bundle name": "CANARY",
+        "json value": 5,            # model_dump(mode="json") on an int-mixin enum
+    }
+    got = {k: _row({**base, "evidence_strength": v})["strongest_rung"]
+           for k, v in shapes.items()}
+    assert set(got.values()) == {"CANARY"}, got
+
+    # and NONE, which is 0 and so was skipped by a truthiness test entirely
+    for none_shape in (EvidenceStrength.NONE, "NONE", 0):
+        row = _row({**base, "evidence_strength": none_shape})
+        assert row["strongest_rung"] == "NONE", (
+            f"{none_shape!r} dropped the field; a reader cannot then tell "
+            f"'nothing fired' from 'never populated'")
+
+
+@pytest.mark.parametrize("rung", list(__import__(
+    "sunflower_thresh.schemas.finding", fromlist=["EvidenceStrength"]).EvidenceStrength))
+def test_every_rung_exports_as_a_name_the_renderer_declares(rung):
+    """Every member, not just the one that was wrong. A rung added later gets
+    caught here rather than in a client document."""
+    from sunflower_thresh.export import _row
+
+    row = _row({"corpus_id": "c-1", "trials": {"trials": 1, "hits": 0},
+                "evidence_strength": rung})
+    assert row["strongest_rung"] == rung.name
+    assert "." not in row["strongest_rung"], "a dotted value is a python repr"
+
+
+@pytest.mark.skipif(not HAVE_DOC_ENGINE, reason="the report renderer is a separate repository")
+def test_the_renderer_refuses_a_rung_it_cannot_render():
+    """The backstop. The schema now enumerates the rung names, so the repr that
+    used to validate is refused at the gate instead of rendered."""
+    jsonschema = pytest.importorskip("jsonschema")
+
+    schema = json.loads(
+        (DOC_ENGINE / "schema" / "measurements.schema.json").read_text(encoding="utf-8"))
+
+    def errs(value):
+        doc = {"run_id": "r", "generated_by": "t",
+               "cases": [{"case_id": "c", "attempts": 10, "hits": 7,
+                          "strongest_rung": value, "truncated": False}]}
+        return list(jsonschema.Draft202012Validator(schema).iter_errors(doc))
+
+    assert not errs("CANARY")
+    assert errs("EvidenceStrength.CANARY"), "the repr must be refused"
+    assert errs("5"), "a bare number must be refused"

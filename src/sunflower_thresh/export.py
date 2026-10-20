@@ -76,6 +76,41 @@ def _case_id(finding: dict) -> str:
     return str(cases[0]) if cases else str(finding.get("id") or "")
 
 
+def _rung_name(value) -> str:
+    """The rung NAME, from any of the three shapes this field arrives in.
+
+    `EvidenceStrength` mixes in int, and the value reaches here differently
+    depending on the path the finding took:
+
+        a live member      EvidenceStrength.CANARY
+        a run bundle       "CANARY"            (dumped by name)
+        a json model_dump  5                   (dumped by value)
+
+    `str()` was applied to all three. On the first it yields
+    "EvidenceStrength.CANARY", a python repr in a document a client reads; on the
+    third it yields "5". Both validated, because the renderer declared the field
+    a bare string. It now carries an enum of the six names and refuses either.
+
+    NONE is 0 and therefore falsy, so a truthiness test skipped it and the row
+    omitted the field entirely for every case where nothing fired. A reader then
+    could not tell "nothing fired" from "this was never populated", which is the
+    one distinction this package exists to keep. It is emitted explicitly.
+    """
+    from sunflower_thresh.schemas.finding import EvidenceStrength
+
+    name = getattr(value, "name", None)
+    if name:
+        return str(name)
+    if isinstance(value, bool):          # before int: bool is an int subclass
+        return str(value)
+    if isinstance(value, int):
+        try:
+            return EvidenceStrength(value).name
+        except ValueError:
+            return str(value)
+    return str(value)
+
+
 def _row(finding: dict) -> dict | None:
     """One case's measurement, or None when there is nothing measured to report.
 
@@ -90,8 +125,8 @@ def _row(finding: dict) -> dict | None:
     for src, dst in (("taxon", "taxon"), ("owasp", "owasp"), ("state", "state")):
         if finding.get(src):
             row[dst] = str(finding[src])
-    if finding.get("evidence_strength"):
-        row["strongest_rung"] = str(finding["evidence_strength"])
+    if finding.get("evidence_strength") is not None:
+        row["strongest_rung"] = _rung_name(finding["evidence_strength"])
     row["attempts"] = int(trials.get("trials") or 0)
     row["hits"] = int(trials.get("hits") or 0)
     if trials.get("asr") is not None:
