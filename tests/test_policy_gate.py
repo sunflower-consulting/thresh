@@ -20,7 +20,7 @@ import pytest
 
 from sunflower_thresh.policy.decision import DenyReason, TargetRef, ToolRequest
 from sunflower_thresh.policy.engine import PolicyEngine
-from sunflower_thresh.schemas.target import ActionClass
+from sunflower_thresh.schemas.target import ActionClass, AuthorizationRecord
 
 LOOPBACK = TargetRef(ip="127.0.0.1")
 ELSEWHERE = TargetRef(ip="203.0.113.10")   # RFC 5737 documentation range
@@ -98,14 +98,47 @@ def test_a_scope_whose_hash_does_not_match_cannot_authorise_anything(lab_invento
     assert d.deny_code is DenyReason.INVENTORY_UNVERIFIED
 
 
-def test_an_authorisation_that_has_expired_refuses(expired_inventory):
+def test_an_authorisation_that_expired_before_the_run_refuses(expired_inventory):
     """An engagement ends on a date. After it, the same scope file authorises
-    nothing, without anybody having to remember to delete it."""
+    nothing, without anybody having to remember to delete it.
+
+    The reason is asserted exactly, not as one of two. `load_inventory` sets
+    `verified` from `is_active()`, so an authorisation that had already lapsed
+    makes the inventory unverified and the gate stops there -- the AUTH_INACTIVE
+    branch further down is never reached by this path. An `in (...)` here passed
+    whether or not that branch existed, which is how it came to be deleted
+    without a single test noticing.
+    """
     eng = PolicyEngine()
     assert eng.load_inventory(expired_inventory) is False
     d = eng.authorize(_req(target=LOOPBACK))
     assert not d.allowed
-    assert d.deny_code in (DenyReason.INVENTORY_UNVERIFIED, DenyReason.AUTH_INACTIVE)
+    assert d.deny_code is DenyReason.INVENTORY_UNVERIFIED
+
+
+def test_an_authorisation_that_lapses_DURING_a_run_refuses(lab_inventory, monkeypatch):
+    """The case the AUTH_INACTIVE branch exists for, and the one nothing covered.
+
+    `verified` is computed once, when the inventory is loaded. A long run that
+    crosses the expiry therefore holds a cached `verified = True` while the
+    authorisation underneath it has lapsed, and only the per-call
+    `is_active()` check stops the next request. Delete that check and this run
+    keeps sending for as long as it lasts, against a scope that has expired.
+
+    Asserted by lapsing the record after a successful call rather than before
+    it, because loading it already-expired takes the unverified path above and
+    proves nothing about this branch.
+    """
+    eng = PolicyEngine()
+    assert eng.load_inventory(lab_inventory) is True
+    assert eng.authorize(_req(target=LOOPBACK)).allowed, "it must work before the lapse"
+
+    monkeypatch.setattr(AuthorizationRecord, "is_active", lambda self, on=None: False)
+
+    d = eng.authorize(_req(target=LOOPBACK))
+    assert not d.allowed
+    assert d.deny_code is DenyReason.AUTH_INACTIVE
+    assert "not active" in d.reason
 
 
 # --- the killswitch outranks everything ------------------------------------------
