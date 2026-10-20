@@ -177,10 +177,28 @@ class BaselineArm:
 class _ChatRunner:
     """Runs one trial: a fresh conversation, every turn, through the gate.
 
-    Every call goes through ``ctx.execute_tool``, so scope, the tool allowlist, the
-    rate limit and the target-message budget all apply exactly as they do to the
-    model's own calls. A validator that reached the network directly would be a
-    hole in the gate.
+    Every call to the TARGET goes through ``ctx.execute_tool``, so scope, the tool
+    allowlist, the rate limit and the target-message budget all apply exactly as
+    they do to the model's own calls. A validator that reached the target directly
+    would be a hole in the gate.
+
+    ONE REQUEST DOES NOT GO THROUGH THE GATE, and it is named here because this
+    docstring previously claimed that none did. The victim renderer fetches the
+    image references in a reply, which is what makes the callback rung able to
+    fire at all, and it issues that GET itself rather than through a tool verb.
+    Routing it through the gate would mean a new permitted verb, and every
+    inventory already written omits it -- so the rung would stop firing for every
+    existing engagement.
+
+    What bounds it instead, all enforced in ``render.host_allowed``: http and
+    https only, the host must be loopback or the target or the ONE collector the
+    run wired in, redirects are refused because a 302 names a host the check
+    never saw, and the response body is discarded. It cannot be aimed by a reply:
+    the allowance comes from the run, and a URL naming anything else is refused
+    and recorded as refused.
+
+    Every fetch and every refusal is written to ``ctx.audit`` for that reason. A
+    request the gate cannot stop must at least be one a reviewer can see.
     """
 
     def __init__(self, ctx, case: ChatCase, *, target_ip: str, port: int, by: str,
@@ -268,6 +286,18 @@ class _ChatRunner:
                     rendered.extend(
                         {"url": f.url, "fetched": f.fetched, "status": f.status,
                          "refused": f.refused} for f in fetched)
+                    # This GET did not pass the gate -- see the class docstring
+                    # for why, and for what bounds it instead. Recording it is
+                    # what keeps "nothing ran out of scope" answerable: a
+                    # reviewer reading the audit log sees every URL a reply
+                    # produced, including the ones that were refused.
+                    audit = getattr(self.ctx, "audit", None)
+                    if audit is not None:
+                        for f in fetched:
+                            audit.record(
+                                "render_fetch", case=self.case.id, url=f.url,
+                                fetched=bool(f.fetched), status=f.status,
+                                refused=f.refused or "")
             tool_calls = tool_calls + list(out.get("tool_calls", []) or [])
             latency += float(out.get("latency_s", 0) or 0)
             seen.append(ChatObservation(

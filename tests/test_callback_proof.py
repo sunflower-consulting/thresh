@@ -399,3 +399,92 @@ def test_a_lapsed_authorization_cannot_stand_up_a_routable_collector():
         assert col.running
     finally:
         col.stop()
+
+
+# --- the one request that does not pass the gate ----------------------------------
+
+def test_every_render_fetch_is_written_to_the_audit_log():
+    """The renderer's GET does not pass the policy gate, so it has to be visible.
+
+    This is the only request in the package that reaches the network without
+    `ctx.execute_tool` deciding first. Routing it through the gate would need a
+    new permitted verb, and every inventory already written omits it, so the
+    callback rung would stop firing for every existing engagement. The runner's
+    docstring now says this plainly; it previously claimed no such request
+    existed, while making one three lines below.
+
+    What is left is auditability. "Nothing ran out of scope" has to stay
+    answerable, which means a reviewer reading the audit log sees every URL a
+    reply produced -- the fetched ones and the refused ones alike. Without this
+    test that record is a line of code nobody checks.
+    """
+    from sunflower_thresh.audit.log import AuditLog
+    from sunflower_thresh.policy.decision import Decision
+    from sunflower_thresh.render import VictimRenderer
+    from sunflower_thresh.tools.chat import ChatCase, ChatTurn
+    from sunflower_thresh.validation_chat import _ChatRunner
+
+    class _Ctx:
+        """The narrowest thing the runner needs: a gate that allows, and an audit."""
+
+        project = "audit-test"
+
+        def __init__(self, reply):
+            self.audit = AuditLog()
+            self._reply = reply
+
+        def execute_tool(self, req):
+            if req.tool == "chat_say":
+                return Decision(allowed=True, reason="allowed", request=req), {"reply": self._reply}
+            return Decision(allowed=True, reason="allowed", request=req), {"conversation_id": "c-1"}
+
+    # one URL the run allowed, one it did not. Both must appear.
+    allowed = "http://127.0.0.1:9/c/tok"
+    refused = "https://somewhere-else.example/c/tok"
+    reply = f"![a]({allowed}) and ![b]({refused})"
+
+    ctx = _Ctx(reply)
+    case = ChatCase(id="audit-case", turns=[ChatTurn(content="go")],
+                    oracles=[{"structural": {"contains": "a"}}])
+    runner = _ChatRunner(ctx, case, target_ip="127.0.0.1", port=9, by="test")
+    runner.renderer = VictimRenderer(target_ip="127.0.0.1", allow_hosts=frozenset())
+    runner.trial(case.turns, {})
+
+    logged = [e for e in ctx.audit.entries() if e.get("event") == "render_fetch"]
+    urls = {e["url"] for e in logged}
+    assert allowed in urls, f"the fetched URL was not audited: {urls}"
+    assert refused in urls, f"the REFUSED URL was not audited: {urls}"
+
+    by_url = {e["url"]: e for e in logged}
+    assert by_url[refused]["fetched"] is False
+    assert by_url[refused]["refused"], "a refusal must carry its reason"
+    assert by_url[allowed]["case"] == "audit-case"
+
+
+def test_a_run_with_no_renderer_writes_no_render_entries():
+    """So the audit log says what happened rather than what was configured. A
+    case that could not fire the callback rung should leave no trace of one."""
+    from sunflower_thresh.audit.log import AuditLog
+    from sunflower_thresh.policy.decision import Decision
+    from sunflower_thresh.tools.chat import ChatCase, ChatTurn
+    from sunflower_thresh.validation_chat import _ChatRunner
+
+    class _Ctx:
+        project = "audit-test"
+
+        def __init__(self):
+            self.audit = AuditLog()
+
+        def execute_tool(self, req):
+            if req.tool == "chat_say":
+                return Decision(allowed=True, reason="allowed", request=req), {
+                    "reply": "![a](http://127.0.0.1:9/c/tok)"}
+            return Decision(allowed=True, reason="allowed", request=req), {"conversation_id": "c-1"}
+
+    ctx = _Ctx()
+    case = ChatCase(id="no-render", turns=[ChatTurn(content="go")],
+                    oracles=[{"structural": {"contains": "a"}}])
+    runner = _ChatRunner(ctx, case, target_ip="127.0.0.1", port=9, by="test")
+    runner.trial(case.turns, {})      # renderer left as None
+
+    assert not [e for e in ctx.audit.entries() if e.get("event") == "render_fetch"]
