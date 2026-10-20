@@ -675,7 +675,22 @@ def validate_chat_case(
     elif arm and m > 0:
         # Already sent, or sent now and kept for every case after this one.
         control_kind = "baseline"
-        for seen in arm.runs(runner, seeds)[:m]:
+        # Reminted here too. The matched arm alone did not cover this, and this
+        # is the arm that actually runs for the cases without a matched control:
+        # of the corpus's 244 cases, 190 carry one and 54 do not, and for those
+        # 54 THIS is the control.
+        #
+        # The baseline exchanges are sent once and re-scored for every case, so
+        # without a fresh token they are scored through whatever token the
+        # attack arm left behind -- the same inherited hit that made the matched
+        # arm fire m/m before it was reminted, now on the path taken instead.
+        #
+        # A token nothing could have fetched reports no hit, which is the honest
+        # reading of what a baseline establishes: that the oracle does not fire
+        # on ordinary traffic. It does not isolate the attack, and `control_kind`
+        # is what stops a report claiming otherwise.
+        for i, seen in enumerate(arm.runs(runner, seeds)[:m]):
+            _remint_callback(collector, seeds, ladder, f"{case.id}-b{i}")
             _tally(seen)
         if arm.note:
             report["baseline_note"] = arm.note

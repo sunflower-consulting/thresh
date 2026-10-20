@@ -780,3 +780,30 @@ def test_verification_can_be_turned_off_at_the_moment_of_running():
     assert transport_for(_inv(verify_tls=True), verify=False)["verify_tls"] is False
     assert transport_for(_inv(verify_tls=False), verify=True)["verify_tls"] is True
     assert transport_for(_inv(verify_tls=False))["verify_tls"] is False
+
+
+def test_the_callback_capability_is_spelled_the_same_everywhere():
+    """One capability name, four places, and nothing compared them.
+
+    `collector.CALLBACK_CAPABILITY` is what the collector gates on. The same
+    string is written as a literal in `sweep._NEEDS_CAPABILITY`, which decides
+    whether a case is REACHABLE, and in the demo's capability set. They are
+    literals on purpose -- importing the collector to resolve four strings would
+    make `thresh --help` pay for the evidence store -- and the cost of that
+    choice is exactly this drift.
+
+    Renaming the constant and leaving the literals alone passed all 549 tests.
+    The two would then disagree: the collector refuses a capability the sweep
+    believes is enabled, so a case is reported unreachable that would have run,
+    or runs and is refused at the socket.
+    """
+    from sunflower_thresh.demo import DEMO_CAPABILITIES
+    from sunflower_thresh.sweep import _NEEDS_CAPABILITY
+
+    assert CALLBACK_CAPABILITY in _NEEDS_CAPABILITY, (
+        f"the sweep gates reachability on {sorted(_NEEDS_CAPABILITY)} and the "
+        f"collector gates on {CALLBACK_CAPABILITY!r}, which is not among them")
+    assert CALLBACK_CAPABILITY in DEMO_CAPABILITIES, (
+        f"the demo switches on {sorted(DEMO_CAPABILITIES)}, which does not include "
+        f"{CALLBACK_CAPABILITY!r} -- the demo's exfiltration case would report "
+        f"unreachable instead of measured")

@@ -34,6 +34,14 @@ from sunflower_thresh.validation_chat import validate_chat_case
 #: codebase keeps insisting on: a case we could not run is UNREACHABLE, and
 #: recording it as "not vulnerable" puts a false negative in the denominator and
 #: lets a coverage number claim ground nobody tested.
+#: Written as literals rather than imported, so that `thresh --help` does not pay
+#: for the collector and the evidence store to resolve a set of four strings. The
+#: cost of that choice is drift: `collector.CALLBACK_CAPABILITY` holds the same
+#: name, and if the two part company the collector gates on one spelling while
+#: this decides reachability on the other -- a case reported unreachable that the
+#: collector would have allowed, or the reverse. Renaming the constant and leaving
+#: this alone passed the whole suite, so
+#: `test_the_callback_capability_is_spelled_the_same_everywhere` now pins it.
 _NEEDS_CAPABILITY = {"plant_content", "out_of_band_callback",
                      "capture_harmful_content", "multi_turn_escalation"}
 
