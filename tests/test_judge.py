@@ -347,3 +347,51 @@ def test_the_judge_records_why_each_rubric_was_withheld():
                       agreement=Agreement(labels=2, agreed=2, judge_model="m"))})
     assert judge.for_rubric("refusal") is None
     assert "2 labels" in judge.withheld["refusal"]
+
+
+# --- the environment variables survived a rename ---------------------------------
+
+def test_the_judge_reads_the_current_name_and_still_reads_the_previous_one():
+    """A rename that leaves an env var behind fails silently, which is the worst
+    way for configuration to fail.
+
+    The package was called stem and the judge's three variables kept that
+    prefix. `corpus.py` was given the new name plus a fallback; the judge was
+    not. So an operator who renamed their exports to match the tool got silence:
+    the variable was ignored, the judge stayed off, and `doctor` reported "no
+    endpoint configured" while naming the very variable they had just set.
+
+    One reader rather than six `os.environ.get` calls, because a fallback added
+    to one of six quietly disagrees with the other five.
+    """
+    from sunflower_thresh.judge import (
+        API_KEY_ENV,
+        ENDPOINT_ENV,
+        LEGACY_JUDGE_ENVS,
+        MODEL_ENV,
+        judge_env,
+    )
+
+    for current in (ENDPOINT_ENV, MODEL_ENV, API_KEY_ENV):
+        legacy = LEGACY_JUDGE_ENVS[current]
+        assert current.startswith("THRESH_"), current
+        assert legacy.startswith("STEM_"), legacy
+
+        assert judge_env(current, {current: "new"}) == "new"
+        assert judge_env(current, {legacy: "old"}) == "old", (
+            f"{legacy} is no longer read; an operator who set it gets silence")
+        assert judge_env(current, {current: "new", legacy: "old"}) == "new", (
+            "the current name must win when both are set")
+        assert judge_env(current, {}) == ""
+        assert judge_env(current, {current: "   ", legacy: "old"}) == "old", (
+            "a blank current value should fall through, not mask the old one")
+
+
+def test_the_private_engines_prefix_is_deliberately_not_read():
+    """HARNESS_ is a different tool. Reading its variables would hand somebody a
+    judge they configured for something else, and the readout would then be
+    wrong in the confident direction."""
+    from sunflower_thresh.judge import ENDPOINT_ENV, LEGACY_JUDGE_ENVS, judge_env
+
+    assert not any(v.startswith("HARNESS_") for v in LEGACY_JUDGE_ENVS.values())
+    assert judge_env(ENDPOINT_ENV, {"HARNESS_JUDGE_ENDPOINT": "http://other"}) == ""

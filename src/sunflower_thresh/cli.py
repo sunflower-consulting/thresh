@@ -14,7 +14,7 @@ from pathlib import Path
 from sunflower_thresh import __version__
 from sunflower_thresh.calibrate import MOCK_JUDGES
 from sunflower_thresh.corpus import CORPUS_ENV, corpus_root_from_env
-from sunflower_thresh.judge import ENDPOINT_ENV, MODEL_ENV
+from sunflower_thresh.judge import ENDPOINT_ENV, MODEL_ENV, judge_env
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -489,13 +489,12 @@ def _lab(args: argparse.Namespace) -> int:
 
 def _judge(args: argparse.Namespace) -> int:
     """Say what the judge rung would do, and why it will probably do nothing."""
-    import os
 
     from sunflower_thresh.judge import LOAD_ERRORS, load_rubrics
     from sunflower_thresh.modelcall import ChatTransport
 
-    endpoint = args.endpoint or os.environ.get(ENDPOINT_ENV, "").strip()
-    model = args.model or os.environ.get(MODEL_ENV, "").strip()
+    endpoint = args.endpoint or judge_env(ENDPOINT_ENV)
+    model = args.model or judge_env(MODEL_ENV)
     rubrics = load_rubrics()
 
     print(f"rubric library:   {len(rubrics)} loaded from the installed package")
@@ -563,7 +562,6 @@ def _judge(args: argparse.Namespace) -> int:
 
 def _calibrate(args: argparse.Namespace) -> int:
     """The dry pass by default, the live one when an endpoint says so."""
-    import os
 
     from sunflower_thresh.calibrate import (
         collect_replies,
@@ -584,8 +582,8 @@ def _calibrate(args: argparse.Namespace) -> int:
               f"{', '.join(MOCK_JUDGES)}", file=sys.stderr)
         return 2
 
-    endpoint = args.endpoint or os.environ.get(ENDPOINT_ENV, "").strip()
-    model = args.model or os.environ.get(MODEL_ENV, "").strip()
+    endpoint = args.endpoint or judge_env(ENDPOINT_ENV)
+    model = args.model or judge_env(MODEL_ENV)
     dry = args.dry or bool(args.judge) or not (endpoint and model)
 
     # Collected once and reused across judges: the lab's scripted brain is

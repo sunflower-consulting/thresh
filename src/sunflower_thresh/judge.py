@@ -67,13 +67,43 @@ from sunflower_thresh.schemas.finding import EvidenceStrength
 DEFAULT_RUBRIC_DIR = Path(__file__).resolve().parent / "rubrics"
 
 #: The endpoint and model, by environment, because thresh has one judge and a
-#: catalog with a single row is a schema to maintain for nothing. `STEM_` rather
-#: than the private engine's `HARNESS_` prefix: this is a different tool, and a
-#: reader who sets the old name should get the "no endpoint configured" readout
-#: rather than a judge they did not configure.
-ENDPOINT_ENV = "STEM_JUDGE_ENDPOINT"
-MODEL_ENV = "STEM_JUDGE_MODEL"
-API_KEY_ENV = "STEM_JUDGE_API_KEY_ENV"
+#: catalog with a single row is a schema to maintain for nothing.
+#:
+#: `THRESH_` now, with `STEM_` still read. The private engine's `HARNESS_` prefix
+#: is deliberately NOT read: that is a different tool, and a reader who exported
+#: its name should get the "no endpoint configured" readout rather than a judge
+#: they did not configure.
+#:
+#: `STEM_` is read for the same reason `corpus.py` still reads `STEM_CORPUS`.
+#: Without it, someone who renamed their exports to match the tool got silence:
+#: the variable was ignored, the judge stayed off, and the readout said "no
+#: endpoint configured" while naming the very variable they had set.
+ENDPOINT_ENV = "THRESH_JUDGE_ENDPOINT"
+MODEL_ENV = "THRESH_JUDGE_MODEL"
+API_KEY_ENV = "THRESH_JUDGE_API_KEY_ENV"
+
+#: The previous spelling of each, read when the current one is unset.
+LEGACY_JUDGE_ENVS = {
+    ENDPOINT_ENV: "STEM_JUDGE_ENDPOINT",
+    MODEL_ENV: "STEM_JUDGE_MODEL",
+    API_KEY_ENV: "STEM_JUDGE_API_KEY_ENV",
+}
+
+
+def judge_env(name: str, env: dict | None = None) -> str:
+    """One judge variable, current name first then the previous one, stripped.
+
+    A single reader rather than `os.environ.get` at six call sites, because the
+    fallback is the kind of thing that gets added to one of six and then quietly
+    disagrees with the other five.
+    """
+    source = os.environ if env is None else env
+    for key in (name, LEGACY_JUDGE_ENVS.get(name, "")):
+        if key:
+            value = (source.get(key) or "").strip()
+            if value:
+                return value
+    return ""
 
 #: Rubrics that failed to load, as (source, error). Module level and inspected by
 #: the CLI: a rubric that silently does not exist turns every case that needs it
@@ -92,7 +122,7 @@ def endpoint_configured() -> bool:
     trusting the tool, so it must work with no network, and it must never be the
     command that discovers the endpoint is down.
     """
-    return bool(os.environ.get(ENDPOINT_ENV, "").strip())
+    return bool(judge_env(ENDPOINT_ENV))
 
 
 #: Fewest human labels a figure may rest on and still open the gate.
