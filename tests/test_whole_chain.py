@@ -37,12 +37,7 @@ from sunflower_thresh.policy.engine import PolicyEngine
 from sunflower_thresh.preflight import load_inventory, transport_for
 from sunflower_thresh.redact import make_redactor
 from sunflower_thresh.sweep import applicable_chat_cases, sweep_builtins
-from sunflower_thresh.tools.conversation import (
-    ChatOpen,
-    ChatReset,
-    ChatSay,
-    ConversationStore,
-)
+from sunflower_thresh.tools.conversation import ConversationStore, chat_tools
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
@@ -62,10 +57,8 @@ def chain(tmp_path_factory) -> dict:
     policy = PolicyEngine()
     verified = policy.load_inventory(inv)
     convos = ConversationStore()
-    ctx = AgentContext(inv.project, policy, tool_impls={
-        "chat_open": ChatOpen(convos, store, policy=policy),
-        "chat_say": ChatSay(convos, store, policy=policy),
-        "chat_reset": ChatReset(convos, store, policy=policy)})
+    ctx = AgentContext(inv.project, policy,
+                       tool_impls=chat_tools(convos, store, policy=policy))
 
     runnable, unreachable = applicable_chat_cases(
         inv.allowed_tools, capabilities=inv, have_tool_visibility=True,

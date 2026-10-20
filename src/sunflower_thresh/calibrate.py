@@ -203,7 +203,7 @@ def collect_replies(*, safeties=(UNGUARDED, HARDENED), cases=None) -> list[Reply
     from sunflower_thresh.policy.engine import PolicyEngine
     from sunflower_thresh.redact import make_redactor
     from sunflower_thresh.tools.chat import BUILTIN_CHAT_CASES
-    from sunflower_thresh.tools.conversation import ChatOpen, ChatReset, ChatSay, ConversationStore
+    from sunflower_thresh.tools.conversation import ConversationStore, chat_tools
 
     cases = cases or BUILTIN_CHAT_CASES
     out: list[Reply] = []
@@ -215,10 +215,8 @@ def collect_replies(*, safeties=(UNGUARDED, HARDENED), cases=None) -> list[Reply
         policy = PolicyEngine()
         policy.load_inventory(_inventory(port, CANARY))
         conversations = ConversationStore()
-        ctx = AgentContext("demo", policy, tool_impls={
-            "chat_open": ChatOpen(conversations, store, policy=policy),
-            "chat_say": ChatSay(conversations, store, policy=policy),
-            "chat_reset": ChatReset(conversations, store, policy=policy)})
+        ctx = AgentContext("demo", policy,
+                           tool_impls=chat_tools(conversations, store, policy=policy))
 
         def call(tool, args, action_class, *, _ctx=ctx, _port=port):
             req = ToolRequest(project="demo", tool=tool, action_class=action_class,

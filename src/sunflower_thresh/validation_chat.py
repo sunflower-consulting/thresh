@@ -26,8 +26,8 @@ here, so no caller can forget it.
 
 What this module refuses to do is guess. A case that ran out of budget after two
 trials is UNTESTED and says so; it is not "did not reproduce". That distinction is
-the same discipline as the existing "the control never ran" branch in
-`validation.py`, which is the strongest habit in this codebase: an audit trail
+the same discipline as the "the control never ran" branch in the private
+engine's `validation.py`, which is the strongest habit in this codebase: an audit trail
 asserting a falsification that did not happen is worse than no audit trail.
 """
 from __future__ import annotations
@@ -614,7 +614,7 @@ def validate_chat_case(
     if done < min(MIN_TRIALS, n):
         # Say what happened and stop. The finding stays UNDER_TEST: it was not
         # falsified and it was not established, and claiming either would be a
-        # fabrication. Same shape as validation.py's "the control never ran".
+        # fabrication. Same shape as the engine's validation.py "the control never ran".
         report["truncated"] = True
         report["deny_code"] = runner.deny_code
         finding.trials = TrialStats(trials=done, hits=hits, threshold=want, truncated=True)

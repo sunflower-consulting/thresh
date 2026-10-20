@@ -20,7 +20,7 @@ LLM whether something counts would make the benchmark as noisy as the thing bein
 benchmarked, and two runs of the same agent would differ for no reason.
 
 The field shape is Juice Shop's on purpose -- key, name, category, difficulty,
-description, solved, disabledEnv -- so `harness/benchmark.py` reads both boards
+description, solved, disabledEnv -- so the engine's `harness/benchmark.py` reads both boards
 through one code path. That is the whole reason the board is shaped like somebody
 else's: a second benchmark should be a data file, not a fork.
 """
@@ -30,8 +30,8 @@ import re
 import threading
 from urllib.parse import urlparse
 
-#: One planted flaw per entry. `taxon` ties a challenge to the feasibility map in
-#: config/benchmarks/, so coverage is reported per technique rather than per lab.
+#: One planted flaw per entry. `taxon` ties a challenge to the engine's feasibility map
+#: (not vendored here), so coverage is reported per technique rather than per lab.
 CHALLENGES: list[dict] = [
     # --- LLM01 prompt injection -------------------------------------------
     {"key": "directOverride", "name": "Direct instruction override",
@@ -182,7 +182,7 @@ class Scoreboard:
         It could not fire while `disable()` was only ever called from `Lab.__init__`
         before any traffic. It fires the moment a defence configuration disables
         something the lab can still reach, which is exactly the case
-        `config/labs/defenses.yaml` exists to describe -- so the rule that makes the
+        the engine's `config/labs/defenses.yaml` exists to describe -- so the rule that makes the
         `disables:` contract honest belongs here, in the mechanism, rather than in
         each caller remembering it.
         """
@@ -194,7 +194,7 @@ class Scoreboard:
         """Mark a challenge unavailable in this deployment.
 
         Juice Shop's `disabledEnv` is folded into the `excluded` tier by
-        `benchmark.tier_of`, so a flaw this configuration cannot arm leaves the
+        the engine's `benchmark.tier_of`, so a flaw this configuration cannot arm leaves the
         denominator instead of counting as a miss. Used by --safety-level.
         """
         with self._lock:

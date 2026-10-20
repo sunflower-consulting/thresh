@@ -1,118 +1,24 @@
-"""chat_probe -- the AI-chatbot/agent target type.
+"""The built-in chat cases, and the models a case is written in.
 
-Testing a chatbot is a different target type from web: the input is a message,
-and what matters is what the *system does* in response -- does it obey an
-injected instruction, disclose a secret it was told to guard, cross a data
-boundary, or take a tool action it should not. ``ChatProbe`` is the deliberately
-dumb transport: it sends one message to a chat endpoint and returns the reply as
-evidence. Judgement lives in the oracle ladder and the validation gate, never in the
-transport -- the same separation as the rest of the package.
+Six cases, one per rung of the evidence ladder plus the multi-turn regression.
+`seed-vault` is the case library; these exist so a checkout-less `pytest` run
+still exercises every rung end to end, and so `thresh demo` has something to run
+against the bundled lab with no corpus present.
 
-For a black-box endpoint the observable effect is the reply text (a leaked
-secret, a complied-with injection). When a client instruments their agent so we
-can see tool calls, the same oracle shape extends to those observable effects;
-that is the stronger signal and the one to push clients toward.
+This file used to open with `ChatProbe`, a single-shot POST-a-message transport,
+and described itself as "the AI-chatbot/agent target type". That tool was never
+registered by any driver and no case could select it: `ChatCase` has turns, and
+one turn through `chat_open` + `chat_say` does everything the probe did while
+keeping the transcript as the finding's evidence. Twelve modules import this
+file and every one of them imports the case models or the built-ins. So the
+transport is gone and the docstring now describes what is actually here.
 
-Transport is gated like any tool: the endpoint host must be in scope. Two wire
-shapes are supported -- ``simple`` (POST ``{message}`` -> ``{reply}``) and
-``openai`` (chat-completions) -- so it fits a custom bot or an OpenAI-compatible
-one.
+Judgement lives in the oracle ladder and the validation gate, never in a case:
+a case says what to send and which rungs may score it, and nothing more.
 """
 from __future__ import annotations
 
-import json
-from datetime import UTC, datetime
-
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
-
-from sunflower_thresh.nethttp import connect
-from sunflower_thresh.policy.decision import ToolRequest, host_of
-from sunflower_thresh.schemas.evidence import EvidenceKind
-from sunflower_thresh.schemas.target import ActionClass
-from sunflower_thresh.tools.base import Tool, merge_auth_headers
-
-
-class ChatProbe(Tool):
-    name = "chat_probe"
-    action_class = ActionClass.ACTIVE
-    evidence_kind = EvidenceKind.HTTP_EXCHANGE
-
-    def __init__(self, store=None, policy=None):
-        super().__init__(store)
-        #: Read at call time for this project's signed auth headers; see
-        #: `_ChatTool._engagement_headers` in conversation.py for the reasoning.
-        self.policy = policy
-
-    def _engagement_headers(self, req: ToolRequest) -> dict:
-        if self.policy is None:
-            return {}
-        try:
-            inv = self.policy.inventory_for(req.project)
-            return inv.resolved_auth_headers() if inv is not None else {}
-        except Exception:  # noqa: BLE001 - a header lookup never breaks a probe
-            return {}
-
-    def __call__(self, req: ToolRequest) -> dict:
-        ip = host_of(req)
-        if not ip:
-            return {"error": "chat_probe requires a target host (ip or domain)",
-                    "evidence_refs": []}
-        a = req.args or {}
-        message = a.get("message")
-        if not message:
-            return {"error": "chat_probe requires a message", "evidence_refs": []}
-        port = int(a.get("port", 80))
-        path = a.get("path", "/chat")
-        mode = a.get("mode", "simple")
-        timeout = float(a.get("timeout_s", 60))
-
-        if mode == "openai":
-            path = a.get("path", "/v1/chat/completions")
-            body = {"model": a.get("model", ""),
-                    "messages": [{"role": "user", "content": message}]}
-        else:
-            body = {a.get("message_field", "message"): message, **a.get("extra", {})}
-
-        headers = merge_auth_headers(a.get("headers") or {},
-                                     self._engagement_headers(req))
-        status, reason, raw = self._post(ip, port, path, body, timeout,
-                                         tls=a.get("tls"),
-                                         verify=bool(a.get("verify_tls", True)),
-                                         headers=headers)
-        reply = self._extract(mode, raw, a.get("reply_field", "reply"))
-        exchange = (f"POST {path} HTTP/1.1\nHost: {ip}:{port}\n\n{json.dumps(body)}\n\n"
-                    f"HTTP/1.1 {status} {reason}\n\n{raw[:2000]}")
-        ref = self._record(exchange.encode(), target=ip, meta={"path": path, "mode": mode})
-        return {"target": ip, "port": port, "path": path, "status": status,
-                "reply": reply, "at": datetime.now(UTC).isoformat(),
-                "evidence_refs": [ref]}
-
-    @staticmethod
-    def _post(ip, port, path, body, timeout, *, tls=None, verify=True, headers=None):
-        conn = connect(ip, port, tls=tls, timeout=timeout, verify=verify)
-        try:
-            payload = json.dumps(body).encode()
-            conn.request("POST", path, body=payload,
-                         headers={"Host": ip, "Content-Type": "application/json",
-                                  "User-Agent": "harness-chat/0.1",
-                                  **(headers or {})})
-            resp = conn.getresponse()
-            return resp.status, resp.reason, resp.read(16384).decode(errors="replace")
-        finally:
-            conn.close()
-
-    @staticmethod
-    def _extract(mode, raw, reply_field):
-        try:
-            obj = json.loads(raw)
-        except json.JSONDecodeError:
-            return raw[:2000]
-        if mode == "openai":
-            try:
-                return obj["choices"][0]["message"]["content"]
-            except (KeyError, IndexError, TypeError):
-                return raw[:2000]
-        return str(obj.get(reply_field, obj))
 
 
 class ChatTurn(BaseModel):

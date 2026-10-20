@@ -1,7 +1,7 @@
 """Stateful chat: hold a conversation, because one message cannot find the bug.
 
-``chat_probe`` sends one message and reads one reply. That is the right shape for
-a single-shot disclosure test and the wrong shape for most of what actually works
+A single POST that sends one message and reads one reply is the right shape for a
+single-shot disclosure test and the wrong shape for most of what actually works
 against a deployed chatbot, all of which needs TURNS:
 
   * crescendo -- ask something innocuous, then escalate by degrees. Each turn is
@@ -14,22 +14,22 @@ against a deployed chatbot, all of which needs TURNS:
   * goal hijacking across turns, where the injected instruction and the trigger
     that fires it arrive separately.
 
-None of those are expressible in a single POST, so the harness could not test
-them at all. These tools are the conversation:
+None of those are expressible in a single POST, so these three tools are the
+conversation, and they are the whole target-facing surface this package has:
 
   * ``chat_open``  mint a conversation. Sends nothing, so it is PASSIVE.
   * ``chat_say``   one turn, with the history attached. ACTIVE.
   * ``chat_reset`` abandon a conversation and start clean.
 
-``chat_reset`` matters more than it looks. config/skills/llm-prompt-injection.md
-already requires proof "in two fresh sessions (new conversation, not a later
+``chat_reset`` matters more than it looks. The engagement skill file (not vendored
+here) requires proof "in two fresh sessions (new conversation, not a later
 turn)", and the attack-success-rate statistics assume the trials are INDEPENDENT.
 A second trial continued in a poisoned context is not a second trial; it is the
 first one still running.
 
-Two wire shapes, as with ``chat_probe``: ``simple`` posts {message,
-conversation_id} and lets the server remember, ``openai`` replays the whole
-transcript because chat-completions is stateless. Either way the transcript is
+Two wire shapes: ``simple`` posts {message, conversation_id} and lets the server
+remember, ``openai`` replays the whole transcript because chat-completions is
+stateless. Either way the transcript is
 kept here, so a finding's evidence is the conversation rather than its last line.
 
 Observed tool calls are extracted when the target reports them. That is the
@@ -64,7 +64,7 @@ from sunflower_thresh.tools.base import Tool, merge_auth_headers
 #: Named here, beside the tools, rather than in the gate: the gate must not keep a
 #: list of which tools are chatty, or it is wrong the first time one is added. The
 #: caller reads this and sets `ToolRequest.message_cost`.
-MESSAGE_SPENDING_TOOLS: frozenset[str] = frozenset({"chat_say", "chat_probe"})
+MESSAGE_SPENDING_TOOLS: frozenset[str] = frozenset({"chat_say"})
 
 
 def message_cost_for(tool: str) -> int:
@@ -539,3 +539,35 @@ def _as_calls(value) -> list[dict]:
                     "arguments": args if isinstance(args, str) else json.dumps(args,
                                                                               sort_keys=True)})
     return out
+
+
+#: Every tool name this package can actually serve.
+#:
+#: Declared beside the factory below and asserted against its keys by a test, so
+#: the two cannot disagree. It is the fact `preflight.KNOWN_TOOLS` is built from.
+#:
+#: Why it is a declared fact rather than a list someone keeps: `tool_allowed` is
+#: exact membership, so a permitted name with nothing behind it is not a typo in a
+#: permission, it is no permission at all. Preflight already catches a name
+#: OUTSIDE this set, and its own docstring says a denial it predicts "cannot
+#: surprise an operator mid-window". A name INSIDE the set with no implementation
+#: went the other way and was worse: the gate ALLOWED it, `execute_tool` returned
+#: "no implementation registered", the message was refunded, and preflight had
+#: printed the name in its PASS line as though granted. `chat_probe` was in that
+#: state -- a complete transport in `tools/chat.py` that no driver ever built.
+SERVABLE_TOOLS: frozenset[str] = frozenset({"chat_open", "chat_say", "chat_reset"})
+
+
+def chat_tools(conversations: ConversationStore, store: EvidenceStore,
+               *, policy=None) -> dict[str, Tool]:
+    """The tool table a driver registers with `AgentContext`.
+
+    One factory because there were three byte-identical copies of this dict --
+    `demo.py`, `calibrate.py` and `tests/test_whole_chain.py` -- and a fourth
+    driver would have made a fourth. Three copies of a registry is three chances
+    to add a tool to two of them, and the symptom is a tool that works in the demo
+    and is missing under calibration.
+    """
+    return {t.name: t for t in (ChatOpen(conversations, store, policy=policy),
+                                ChatSay(conversations, store, policy=policy),
+                                ChatReset(conversations, store, policy=policy))}

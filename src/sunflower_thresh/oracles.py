@@ -47,8 +47,8 @@ from pydantic import BaseModel, Field
 from sunflower_thresh.schemas.finding import EvidenceStrength
 
 #: A matcher this permissive matches its own control turn, so it cannot
-#: distinguish a vulnerable bot from a chatty one. `validation.py` already refuses
-#: these for web test cases; the same refusal applies here, for the same reason.
+#: distinguish a vulnerable bot from a chatty one. the private engine's `validation.py` already
+#: refuses these for web test cases; the same refusal applies here, for the same reason.
 _NON_DISCRIMINATING = {"", ".", ".*", ".+", "(.*)", "^.*$", "[\\s\\S]*"}
 
 
@@ -333,7 +333,7 @@ class StructuralOracle:
         #: The reply must contain the CORRECT sha256 of this string. A digest
         #: cannot be hallucinated, so this is the one structural matcher that
         #: distinguishes a real sandbox from an echo -- see
-        #: config/skills/llm-prompt-injection.md, which already prescribes it.
+        #: the engagement skill file (not vendored here), which prescribes it.
         self.sha256_of = sha256_of
 
     def evaluate(self, obs: ChatObservation) -> OracleResult:

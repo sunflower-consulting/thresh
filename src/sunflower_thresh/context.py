@@ -6,8 +6,7 @@ boundary the whole safety argument rests on: the model proposes, the PolicyEngin
 decides, and there is no second path.
 
 This module also held an `Agent` ABC and a `RoleSpec`, a role-bound-to-a-model
-abstraction with one vestigial caller. They are gone -- `Orchestrator` is the agent,
-and a role is `fleet.Role` loaded from `config/fleets/*.yaml`.
+abstraction with one vestigial caller. Both are gone from this package.
 """
 from __future__ import annotations
 

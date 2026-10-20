@@ -53,6 +53,7 @@ from sunflower_thresh import termstyle as ts
 from sunflower_thresh.collector import CALLBACK_CAPABILITY, is_loopback
 from sunflower_thresh.corpus import CONSUMPTION_TRIALS, EXPENSIVE_RUNGS
 from sunflower_thresh.policy.decision import DenyReason
+from sunflower_thresh.tools.conversation import SERVABLE_TOOLS
 
 
 class Status(str, enum.Enum):
@@ -103,16 +104,20 @@ KNOWN_CAPABILITIES: frozenset[str] = frozenset({
 #: target; an inventory that omits it would have every case denied TOOL_NOT_PERMITTED.
 CHAT_TOOL = "chat_say"
 
-#: Every tool name this package answers to, plus the two local verbs the gate permits
-#: everywhere. An `allowed_tools` entry outside this set grants nothing: `tool_allowed`
-#: is exact membership, so the operator believes they permitted a tool and the gate
-#: hands out nothing -- the same fail-open shape as a misspelt capability, and it is
-#: live in this repository's own test fixture, which permits `chat_send` and
-#: `chat_history`, neither of which exists.
-KNOWN_TOOLS: frozenset[str] = frozenset({
-    "chat_open", "chat_say", "chat_reset", "chat_probe",
-    "tool_search", "skill_detail",
-})
+#: Every tool name this package answers to. An `allowed_tools` entry outside this set
+#: grants nothing: `tool_allowed` is exact membership, so the operator believes they
+#: permitted a tool and the gate hands out nothing -- the same fail-open shape as a
+#: misspelt capability, and it was live in this repository's own test fixture, which
+#: permitted `chat_send` and `chat_history`, neither of which exists.
+#:
+#: Not a list kept here, but the set of names a driver can actually build. It used to
+#: be its own frozenset and held three names with nothing behind them: `chat_probe`,
+#: a real transport no driver registered, and the two local verbs, which read a tool
+#: catalogue and a skill library that stayed in the package this was extracted from.
+#: Those failed in the direction this check cannot see -- the gate ALLOWS them and
+#: `execute_tool` then answers "no implementation registered" -- so the operator was
+#: told their scope was fine and found out mid-window.
+KNOWN_TOOLS: frozenset[str] = SERVABLE_TOOLS
 
 # ----- the gate's refusals, and which of them are knowable in advance ------------
 

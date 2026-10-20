@@ -71,19 +71,6 @@ class AuthorizationRecord(BaseModel):
         return True
 
 
-#: Harness verbs that touch nothing outside this repository: they read the tool
-#: catalog and the skill library, which is the agent's equivalent of looking
-#: something up. They send no packet, write no file and name no target, so there
-#: is nothing for an engagement to scope and nothing a project could sensibly
-#: forbid -- and because no shipped inventory listed them, BOTH were uncallable
-#: in every run, while the prompt went on telling the model to call them.
-#:
-#: Permitted everywhere, deliberately and by name. The gate still logs every
-#: call, and tool_search filters its own results to the project's allowlist, so
-#: a search can never return something the gate would then refuse.
-LOCAL_VERBS: frozenset[str] = frozenset({"tool_search", "skill_detail"})
-
-
 class TargetInventory(BaseModel):
     """Explicit allowlist for one project. Frozen after load."""
 
@@ -303,7 +290,19 @@ class TargetInventory(BaseModel):
         return device in self.allowed_devices
 
     def tool_allowed(self, tool: str) -> bool:
-        return tool in self.allowed_tools or tool in LOCAL_VERBS
+        """Exact membership, and no name is permitted outside the allowlist.
+
+        There was a second clause: `or tool in LOCAL_VERBS`, two verbs granted
+        everywhere because they only read the tool catalogue and the skill
+        library. Neither of those exists here -- they stayed in the package this
+        was extracted from, along with the wide tool surface and the model-driven
+        loop that called them. So the clause widened the gate by two names that
+        nothing in this package serves and nothing asks for.
+
+        If a local read-only verb arrives, the clause comes back WITH its reason.
+        An empty set left in the condition would read as live and guard nothing.
+        """
+        return tool in self.allowed_tools
 
     def capability_enabled(self, name: str, default: bool | None = None) -> bool:
         """Is capability ``name`` switched on for this project? Fail-closed: an

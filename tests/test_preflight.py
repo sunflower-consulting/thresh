@@ -807,3 +807,55 @@ def test_the_callback_capability_is_spelled_the_same_everywhere():
         f"the demo switches on {sorted(DEMO_CAPABILITIES)}, which does not include "
         f"{CALLBACK_CAPABILITY!r} -- the demo's exfiltration case would report "
         f"unreachable instead of measured")
+
+
+def test_every_permitted_tool_name_has_an_implementation_behind_it():
+    """A permitted name nothing serves fails in the direction preflight cannot see.
+
+    `check_tool_names` catches a name OUTSIDE `KNOWN_TOOLS` and its docstring says
+    a denial it predicts "cannot surprise an operator mid-window". A name INSIDE
+    the set with no implementation goes the other way, and it is worse:
+    `tool_allowed` says yes, the gate ALLOWS the call, `execute_tool` returns
+    `{"error": "no implementation registered for ..."}` and refunds the message,
+    and preflight has already printed the name in its PASS line as though granted.
+    The operator is told their scope is fine and finds out mid-window.
+
+    Three of the six names were in that state. `chat_probe` was a complete
+    130-line transport in `tools/chat.py` that no driver ever registered and no
+    case could select. `tool_search` and `skill_detail` were granted EVERYWHERE,
+    not even needing to be in the allowlist, and read a tool catalogue and a
+    skill library that stayed in the package this was extracted from.
+
+    So `KNOWN_TOOLS` is now the set of names a driver can build, and this test is
+    what keeps it that way: adding a name without an implementation fails here.
+    """
+    from sunflower_thresh.evidence.store import EvidenceStore
+    from sunflower_thresh.preflight import KNOWN_TOOLS
+    from sunflower_thresh.tools.base import Tool
+    from sunflower_thresh.tools.conversation import SERVABLE_TOOLS, ConversationStore, chat_tools
+
+    built = chat_tools(ConversationStore(), EvidenceStore())
+    assert set(built) == SERVABLE_TOOLS, (
+        "the factory and the declared set disagree: "
+        f"built {sorted(built)}, declared {sorted(SERVABLE_TOOLS)}")
+    assert KNOWN_TOOLS == SERVABLE_TOOLS, (
+        f"preflight would pass a scope permitting {sorted(KNOWN_TOOLS - SERVABLE_TOOLS)}, "
+        "and the run would then answer 'no implementation registered'")
+
+    # Each built value is the class that owns that name, not merely something
+    # callable: a factory keyed by hand can put the wrong tool under a name, and
+    # the gate's action class and evidence kind travel with the class.
+    for name, impl in built.items():
+        assert isinstance(impl, Tool), f"{name} is not a Tool"
+        assert impl.name == name, f"{name!r} is served by {impl.name!r}"
+
+    # And nothing is permitted outside the allowlist any more. `tool_allowed` had a
+    # second clause granting the two local verbs everywhere; a reintroduced one
+    # would not show up in the comparisons above, because it bypasses the
+    # allowlist rather than widening it.
+    from sunflower_thresh.schemas.target import TargetInventory
+    inv = TargetInventory.model_construct(allowed_tools=("chat_say",))
+    assert inv.tool_allowed("chat_say") is True
+    for outside in ("tool_search", "skill_detail", "chat_probe", "chat_open"):
+        assert inv.tool_allowed(outside) is False, (
+            f"{outside!r} is permitted without being in allowed_tools")

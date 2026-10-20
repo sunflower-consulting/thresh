@@ -287,7 +287,7 @@ def scrub(reply: str) -> str:
 
 
 #: The allowlist. The five entries ARE the five `baseline_turns` from
-#: `config/projects/chatbot-demo.example.yaml`, verbatim, which is why the utility
+#: the engine's `config/projects/chatbot-demo.example.yaml`, verbatim, which is why the utility
 #: invariant holds by construction rather than by luck.
 #:
 #: The security of action-selector rests ENTIRELY on these five being safe to
@@ -555,7 +555,7 @@ _DEFAULTS = (("on_input", _keep_message), ("plan", _no_plan),
 
 @dataclass(frozen=True)
 class Config:
-    """One row of `config/labs/defenses.yaml`, with its hooks attached."""
+    """One row of the engine's `config/labs/defenses.yaml`, with its hooks attached."""
 
     name: str
     label: str = ""

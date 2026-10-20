@@ -98,7 +98,7 @@ def run(*, safety: str = "none", trials: int = 5, quiet: bool = False,
     from sunflower_thresh.redact import make_redactor
     from sunflower_thresh.sweep import applicable_chat_cases, sweep_builtins
     from sunflower_thresh.tools.chat import BUILTIN_CHAT_CASES
-    from sunflower_thresh.tools.conversation import ChatOpen, ChatReset, ChatSay, ConversationStore
+    from sunflower_thresh.tools.conversation import ConversationStore, chat_tools
 
     def say(*a):
         if not quiet:
@@ -124,10 +124,8 @@ def run(*, safety: str = "none", trials: int = 5, quiet: bool = False,
     verified = policy.load_inventory(inventory)
 
     conversations = ConversationStore()
-    ctx = AgentContext("demo", policy, tool_impls={
-        "chat_open": ChatOpen(conversations, store, policy=policy),
-        "chat_say": ChatSay(conversations, store, policy=policy),
-        "chat_reset": ChatReset(conversations, store, policy=policy)})
+    ctx = AgentContext("demo", policy,
+                       tool_impls=chat_tools(conversations, store, policy=policy))
 
     say(f"target     the bundled lab on http://127.0.0.1:{port}  (safety={safety}, "
         f"scripted brain, no model)")

