@@ -457,6 +457,42 @@ def _remint_callback(collector, seeds: dict, ladder, label: str) -> None:
             rung.token = token
 
 
+def _surface_ladder_errors(report: dict, finding, *ladders) -> None:
+    """Put a broken rung where somebody will see it.
+
+    `OracleLadder` catches a rung that raises, records it in `errors` and carries
+    on -- deliberately, so one broken matcher does not throw away the verdict of
+    the others. Two docstrings promise the error is "visible rather than silent".
+
+    It was not. `report["ladder_errors"]` was read at exactly one site, inside the
+    `if not len(ladder)` early return, which is reached only before any rung could
+    run. For every ladder that actually scored something, `errors` was write-only:
+    an unbuildable `none_of` suppressor -- the rung that exists to stop a refusal
+    quoting the canary back from counting as a leak -- went missing with nothing
+    said, and the case was scored on fewer rungs than it declares.
+
+    Appended AFTER `_decide`, like the partial-scoring note beside it, so it
+    qualifies whichever verdict was reached. A VALIDATED finding scored on a
+    ladder that did not fully run is still a finding; a REJECTED one is the
+    sentence that must not be read as "we looked every way we meant to".
+
+    The baseline arm builds its OWN `OracleLadder`, so its errors live on a
+    different object and one ladder is not enough to ask.
+    """
+    seen: list[str] = []
+    for ladder in ladders:
+        for err in getattr(ladder, "errors", None) or ():
+            if err not in seen:
+                seen.append(err)
+    if not seen:
+        return
+    report["ladder_errors"] = list(seen)
+    if finding is not None:
+        finding.validation_result = (
+            f"{finding.validation_result} (DEGRADED: {'; '.join(seen)}; this "
+            f"verdict rests on a ladder that did not fully run)")
+
+
 def validate_chat_case(
     ctx,
     case: ChatCase,
@@ -694,6 +730,7 @@ def validate_chat_case(
             f"UNTESTED: only {done} of {n} trials ran "
             f"({runner.deny_code or 'the target stopped answering'}); nothing was measured")
         finding.evidence_refs.extend(runner.evidence_refs)
+        _surface_ladder_errors(report, finding, ladder)
         report["final_state"] = finding.state.value
         return finding, report
 
@@ -715,6 +752,10 @@ def validate_chat_case(
     control_hits = 0
     controls_done = 0
     control_kind = "none"
+    #: Every ladder that scored an observation. The baseline arm builds its own, so
+    #: its broken rungs are on a different object and asking only `ladder` loses
+    #: them.
+    scored_ladders = [ladder]
 
     def _tally(seen, scored_by=None) -> None:
         nonlocal control_hits, controls_done
@@ -795,6 +836,7 @@ def validate_chat_case(
             control_kind = "baseline"
             baseline_ladder = OracleLadder(keep, suppressors=ladder.suppressors,
                                            require_all=ladder.require_all)
+            scored_ladders.append(baseline_ladder)
             for seen in arm.runs(runner, seeds)[:m]:
                 _tally(seen, scored_by=baseline_ladder)
             if arm.note:
@@ -853,6 +895,7 @@ def validate_chat_case(
         finding.validation_result = (
             f"{finding.validation_result} ({scoring.note()}; "
             f"this run measured less than the case asks for)")
+    _surface_ladder_errors(report, finding, *scored_ladders)
     finding.reproduction_steps = _reproduction_steps(
         case, stats, best, host=target_ip, port=port, seeds=seeds, arm=arm,
         baseline_unscorable=tuple(report.get("baseline_unscorable_rungs") or ()))
