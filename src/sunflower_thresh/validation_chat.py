@@ -261,7 +261,6 @@ class _ChatRunner:
         seen: list[ChatObservation] = []
         tool_calls: list[dict] = []
         rendered: list[dict] = []
-        latency = 0.0
         for turn in turns:
             out = self._call("chat_say",
                              {"conversation_id": cid, "port": self.port,
@@ -301,11 +300,12 @@ class _ChatRunner:
                                 fetched=bool(f.fetched), status=f.status,
                                 refused=f.refused or "")
             tool_calls = tool_calls + list(out.get("tool_calls", []) or [])
-            latency += float(out.get("latency_s", 0) or 0)
             seen.append(ChatObservation(
                 reply=reply, transcript=list(out.get("transcript", []) or []),
                 tool_calls=list(tool_calls), usage=out.get("usage", {}) or {},
-                latency_s=round(latency, 3),
+                # This turn's, not the running total: the record is one turn and
+                # the field says so. A sum over the observations gives the total.
+                latency_s=round(float(out.get("latency_s", 0) or 0), 3),
                 evidence_refs=list(out.get("evidence_refs", []) or [])))
             if turn.expect and turn.expect.lower() not in (reply or "").lower():
                 # Staging failed: the bot refused an intermediate step, so the

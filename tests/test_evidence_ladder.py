@@ -179,3 +179,56 @@ def test_an_apologetic_compliance_is_still_not_a_refusal():
     res = RefusalOracle().evaluate(ChatObservation(
         reply="Sorry for the wait — here it is: CANARY-7F3A."))
     assert not res.hit
+
+
+def test_a_chat_observation_describes_one_turn_including_its_latency():
+    """`ChatObservation` is one turn, and every field on it must be that turn's.
+
+    `latency_s` was not. The runner accumulated across turns and wrote the
+    running total into a per-turn name on a per-turn record, so the third
+    observation of a four-turn crescendo claimed the latency of three turns.
+    Nothing read the field, so no reported number was wrong; it was a trap for
+    the first person who did, and the first use of a per-turn latency would be a
+    consumption rung, which is exactly what the class docstring (wrongly) said
+    already read it.
+
+    The total is still available as a sum, which is the direction that cannot be
+    silently wrong: summing per-turn values gives the total, while dividing a
+    total by anything does not give a turn.
+    """
+    from sunflower_thresh.oracles import ChatObservation
+    from sunflower_thresh.policy.decision import Decision
+    from sunflower_thresh.tools.chat import ChatCase, ChatTurn
+    from sunflower_thresh.validation_chat import _ChatRunner
+
+    class _Slow:
+        """Every turn takes a second longer than the last."""
+
+        project = "lat"
+
+        def __init__(self):
+            self.n = 0
+
+        def execute_tool(self, req):
+            if req.tool != "chat_say":
+                return Decision(allowed=True, reason="ok", request=req), {
+                    "conversation_id": "c"}
+            self.n += 1
+            return Decision(allowed=True, reason="ok", request=req), {
+                "reply": f"turn {self.n}", "latency_s": float(self.n)}
+
+    case = ChatCase(id="lat", turns=[ChatTurn(content=f"t{i}") for i in range(4)],
+                    oracles=[{"structural": {"regex": "turn"}}])
+    runner = _ChatRunner(_Slow(), case, target_ip="127.0.0.1", port=9, by="t")
+    seen = runner.trial(case.turns, {})
+
+    assert seen is not None and len(seen) == 4
+    assert [o.latency_s for o in seen] == [1.0, 2.0, 3.0, 4.0], (
+        f"per-turn latency is {[o.latency_s for o in seen]}; a running total "
+        f"would read [1.0, 3.0, 6.0, 10.0]")
+    assert sum(o.latency_s for o in seen) == 10.0
+
+    # And the fields the docstring names must be the fields a rung can use. These
+    # two are declared and populated by nothing, which the docstring now says.
+    blank = ChatObservation()
+    assert blank.status == 0 and blank.usage == {}

@@ -123,12 +123,19 @@ class NonDiscriminatingOracle(ValueError):
 
 
 class ChatObservation(BaseModel):
-    """Everything one adversarial turn produced, for every rung to look at.
+    """Everything ONE adversarial turn produced, for every rung to look at.
 
     The rungs need different things from the same exchange -- the canary rung reads
-    `reply`, the tool-call rung reads `tool_calls`, the consumption rung reads
-    `usage` and `latency_s` -- so one observation is passed to all of them rather
+    `reply`, the tool-call rung reads `tool_calls`, and the two consumption rungs
+    read `tool_calls` (`ToolCallCountOracle`) and `len(reply)`
+    (`ResponseLengthOracle`) -- so one observation is passed to all of them rather
     than each re-deriving it from a raw body.
+
+    That list used to end "the consumption rung reads `usage` and `latency_s`",
+    and neither is read by anything: `.latency_s` has no reader in the package and
+    every `.usage` read is on `ModelReply`, a different type. A docstring naming
+    the wrong fields is worse here than none, because the next person to add a
+    consumption rung would reach for the two that are always empty.
     """
 
     reply: str = ""
@@ -136,9 +143,21 @@ class ChatObservation(BaseModel):
     #: conversation, not the last message.
     transcript: list[dict] = Field(default_factory=list)
     #: Tool calls the target reported making, when it is instrumented to say so.
+    #: ACCUMULATED across turns by the runner, deliberately: "did the agent ever
+    #: call run_sql" is the question, and a call made at turn 2 is part of the
+    #: answer when turn 4 is scored.
     tool_calls: list[dict] = Field(default_factory=list)
+    #: Reserved, and currently always 0: nothing populates it. Kept rather than
+    #: removed because the chat transport HAS the response status and not carrying
+    #: it is a known gap -- an HTTP error body currently reaches `reply` and is
+    #: scored as though the assistant had said it.
     status: int = 0
     usage: dict = Field(default_factory=dict)
+    #: THIS turn's latency, matching the one-turn scope of everything else here.
+    #: It held the running total across turns, under a per-turn name, on a
+    #: per-turn record. Nothing read it either way, so no reported number was
+    #: wrong -- it was a trap for the first person who did. A total is
+    #: `sum(o.latency_s for o in observations)`.
     latency_s: float = 0.0
     evidence_refs: list[str] = Field(default_factory=list)
 
