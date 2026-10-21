@@ -132,17 +132,34 @@ def test_a_hand_written_finding_falls_back_to_its_content_and_not_its_id():
     assert finding_signature(one) != finding_signature(other)
 
 
-def test_what_counts_as_real_is_not_defined_twice():
-    """Imported from the export seam rather than redefined. "Real enough to cite" and
-    "real enough that its disappearance is news" are the same question, and the
-    engine this was ported from used a narrower tuple -- so the two would have
-    disagreed about every judge-proved finding, which `MAX_STATE_FOR[JUDGE]` caps at
-    REPRODUCED."""
+def test_what_counts_as_real_is_derived_from_the_export_seam_and_wider_by_one():
+    """Derived, not redefined -- but not identical either, and the difference is
+    exactly one state.
+
+    This used to assert `STOOD_UP is CITABLE_STATES`, on the premise that "real
+    enough to cite" and "real enough that its disappearance is news" are the same
+    question. They are not, and that premise was the bug: `_decide` reaches
+    REPRODUCED on `hits > 0` BEFORE it looks at the control arm, so the state means
+    only "the oracle fired once" -- and citing it stamped `status: tested` on an
+    obligation, printing the ids of findings whose own verdicts say nothing was
+    established.
+
+    It still belongs in STOOD_UP. A finding that landed twice in three trials and
+    then stops landing is exactly what a retest exists to notice, and
+    `MAX_STATE_FOR[JUDGE]` caps every judge-proved finding at REPRODUCED, so
+    excluding it would make `diff` blind to the whole judge rung.
+    """
     from sunflower_thresh.obligations import CITABLE_STATES
 
-    assert STOOD_UP is CITABLE_STATES
-    assert "reproduced" in STOOD_UP
+    assert STOOD_UP == CITABLE_STATES | {"reproduced"}, (
+        f"STOOD_UP={sorted(STOOD_UP)} is not the citable set plus reproduced "
+        f"({sorted(CITABLE_STATES)})")
+    assert "reproduced" in STOOD_UP, "a retest must notice a judge-proved finding"
+    assert "reproduced" not in CITABLE_STATES, (
+        "a regulatory appendix must not cite a finding that established nothing as "
+        "the evidence a duty was tested")
     assert "rejected" not in STOOD_UP
+    assert "rejected" not in CITABLE_STATES
 
 
 # --- closure needs the variants ---------------------------------------------------

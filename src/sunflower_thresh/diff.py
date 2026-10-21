@@ -55,14 +55,22 @@ from pathlib import Path
 from typing import Any
 
 from sunflower_thresh.obligations import CITABLE_STATES
+from sunflower_thresh.schemas.finding import FindingState
 
 #: States that mean "we established this was real". Imported rather than redefined:
-#: the export seam already had to decide what a report may cite as evidence, and
-#: "real enough to cite" and "real enough that its disappearance is news" are the
-#: same question. A second tuple here is a second thing to keep true, and the engine
-#: this was ported from used a narrower one, so the two would have disagreed about
-#: every judge-proved finding -- `MAX_STATE_FOR[JUDGE]` caps those at REPRODUCED.
-STOOD_UP = CITABLE_STATES
+#: the export seam already had to decide what a report may cite, and a second
+#: free-standing tuple here would be a second thing to keep true. So this is
+#: DERIVED from it -- but wider by exactly one state, because the premise that the
+#: two are "the same question" was wrong.
+#:
+#: They are different bars. "Real enough to cite to a regulator as evidence a duty
+#: was tested" is stronger than "real enough that its disappearance is news in a
+#: retest". REPRODUCED means the oracle fired and nothing was established, which
+#: fails the first and passes the second: a finding that landed twice in three
+#: trials and then stops landing is exactly what a retest exists to notice, and
+#: `MAX_STATE_FOR[JUDGE]` caps every judge-proved finding there, so excluding it
+#: would make `diff` blind to the whole judge rung.
+STOOD_UP = frozenset(CITABLE_STATES | {FindingState.REPRODUCED.value})
 
 #: How much an attack success rate must move before it is worth a row of its own.
 #: A mitigation that halved a rate did something, and a client who deployed one wants
@@ -136,8 +144,6 @@ def is_measurement(finding: dict) -> bool:
     `thresh diff` returns 1 on it to gate a release, so a retest that proved
     nothing exited 0 and reported findings closed.
     """
-    from sunflower_thresh.schemas.finding import FindingState
-
     if str(finding.get("state") or "").lower() == FindingState.UNDER_TEST.value:
         return False
     trials = _trials(finding)

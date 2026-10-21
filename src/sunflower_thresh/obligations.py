@@ -601,8 +601,28 @@ def read_engagement_scope(engagement_dir: str | Path) -> EngagementScope:
 #: reports it `probed-clean`. Measured: leaving this set stale while syncing its
 #: sibling left the suite 560/560 green with `coverage()` reporting the wrong
 #: status. The enum is now the single statement, so a rename breaks at import.
+#: REPRODUCED is NOT here, and that is the point of the set.
+#:
+#: `_decide` reaches REPRODUCED on `hits > 0`, BEFORE it looks at the control arm
+#: at all, so the state means only "the oracle fired at least once". It then parks
+#: a finding there on three outcomes that establish nothing: no control arm ran,
+#: the arms did not separate (p >= ALPHA, or the rate under the case's threshold),
+#: and the judge-only verdict that says in its own words that it needs human
+#: review before it counts as validated.
+#:
+#: Citing those stamped `status: tested` on the obligation and printed their ids
+#: as the evidence, so a client's regulatory appendix read "ai-act:Art.15(1):
+#: tested, evidence: [two ids]" about a run whose own two findings say "nothing
+#: here is falsified and nothing is established". That is the sentence this
+#: function's docstring already refuses to write for a REJECTED finding, and the
+#: argument is the same one.
+#:
+#: Nothing is lost. The measurement keeps its full verdict text in the
+#: measurements appendix, because `consolidate.QUOTABLE_STATES` still carries
+#: REPRODUCED -- a reader sees the number and the hedge together, which is the
+#: honest place for it. The obligation reads `probed-clean`: we looked and nothing
+#: stands, which is true.
 CITABLE_STATES = frozenset({FindingState.VALIDATED.value,
-                            FindingState.REPRODUCED.value,
                             FindingState.CONFIRMED.value})
 
 

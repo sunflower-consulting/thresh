@@ -844,3 +844,52 @@ def test_a_genuinely_descoped_engagement_still_exports_cleanly(tmp_path):
     export says so and returns 0."""
     eng = _engagement(tmp_path / "eng", instruments=[], classes=[])
     assert _run(tmp_path, eng, "2026-01-01T00-00-00_a", [_finding()]) == 0
+
+
+def test_a_finding_that_established_nothing_is_not_cited_as_evidence():
+    """`_decide` reaches REPRODUCED on `hits > 0`, BEFORE it looks at the control
+    arm, so the state means only "the oracle fired at least once". It then parks a
+    finding there on three outcomes that establish nothing: no control arm ran,
+    the arms did not separate, and the judge-only verdict that says in its own
+    words that it needs human review first.
+
+    `CITABLE_STATES` carried it, so `coverage` stamped `status: tested` and printed
+    those ids as the obligation's evidence. A client's regulatory appendix read
+    "tested, evidence: [ids]" about a run whose own findings say "nothing here is
+    falsified and nothing is established" -- the exact sentence
+    `citable_findings`'s docstring already refuses to write for a REJECTED
+    finding.
+
+    Reachability rose with the control-arm rule in this same series: a case whose
+    only scorable rung a replayed baseline cannot score now reports
+    `control_kind: none`, which is one of those three outcomes.
+    """
+    from sunflower_thresh.obligations import CITABLE_STATES, citable_findings
+
+    unfalsified = {
+        "id": "run-C-1", "corpus_id": "C-1", "state": "reproduced",
+        "taxon": "llm01-direct-override",
+        "validation_result": ("REPRODUCED: the oracle fired 2/3 times but no "
+                              "control arm ran, so nothing here is falsified and "
+                              "nothing is established."),
+        "trials": {"trials": 3, "hits": 2, "control_trials": 0,
+                   "control_kind": "none"}}
+    established = {
+        "id": "run-C-2", "corpus_id": "C-2", "state": "validated",
+        "taxon": "llm05-html-injection",
+        "validation_result": "VALIDATED: ASR 1.00 (3/3), matched control 0/3, p=0.05",
+        "trials": {"trials": 3, "hits": 3, "control_trials": 3, "control_hits": 0,
+                   "control_kind": "matched"}}
+
+    cited = [f["corpus_id"] for f in citable_findings([unfalsified, established])]
+    assert cited == ["C-2"], (
+        f"cited {cited}; a finding whose own verdict says nothing was established "
+        f"must not be the evidence a duty was tested")
+    assert "reproduced" not in CITABLE_STATES
+
+    # And it is not thrown away: the measurements appendix still carries it, so a
+    # reader sees the number and the hedge together, which is the honest place.
+    from sunflower_thresh.consolidate import QUOTABLE_STATES
+    assert "reproduced" in QUOTABLE_STATES, (
+        "narrowing citability must not also drop the row from the measurements "
+        "appendix -- that would lose the measurement rather than qualify it")
