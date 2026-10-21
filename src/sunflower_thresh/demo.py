@@ -166,7 +166,15 @@ def run(*, safety: str = "none", trials: int = 5, quiet: bool = False,
                 not_quotable_because=("" if quotable else
                                       "the bundled lab is not a client target"),
                 trials=trials, cases=sorted(runnable),
-                skipped=dict(unreachable or {}),
+                # `stats["unreachable_ids"]`, not the pre-run `unreachable` set.
+                # The sweep folds that set in and ADDS every case the VALIDATOR
+                # could not score -- a case selected, run, and found unscorable.
+                # Writing only the pre-run half put those in `Manifest.cases` with
+                # nothing in `Manifest.skipped`, which is exactly the pair
+                # `skipped`'s own docstring exists to keep apart: a case selected
+                # and never reached is not a case that found nothing. `diff`
+                # subtracts `skipped` from `cases`, so it counted them attempted.
+                skipped=dict(stats["unreachable_ids"]),
                 target_family="sunflower-thresh bundled lab",
                 target_config=f"safety={safety}, scripted brain",
                 started_at=started, finished_at=_now()),

@@ -137,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
 
     rid = runbundle.run_id(inv.project)
     try:
-        findings, _stats = sweep_builtins(
+        findings, stats = sweep_builtins(
             ctx, runnable, target_ip=host, port=port, run_id=rid,
             trials=args.trials, collector=collector, seeds=dict(inv.seeds),
             cases=cases, scoring=runnable, unreachable=unreachable,
@@ -150,7 +150,9 @@ def main(argv: list[str] | None = None) -> int:
 
     bundle = runbundle.write(args.out / rid, runbundle.Manifest(
         run_id=rid, trials=args.trials, cases=sorted(runnable),
-        skipped=dict(unreachable),
+        # The sweep's set, which includes every case the validator could not
+        # score -- not just the pre-run reachability verdict. See demo.py.
+        skipped=dict(stats["unreachable_ids"]),
         # A client run sets this true. The bundled lab is not a client target, and
         # `consolidate` reads this flag rather than a judgement made later.
         quotable=False,

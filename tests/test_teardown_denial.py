@@ -261,3 +261,49 @@ def test_the_three_terminal_states_are_counted_apart():
     assert sum(stats[b] for b in buckets) == 1, (
         f"one case was attempted and {sum(stats[b] for b in buckets)} buckets "
         f"fired: {({b: stats[b] for b in buckets})}")
+
+
+def test_a_case_the_validator_could_not_score_reaches_the_manifest():
+    """`Manifest.skipped` is how "selected and never reached" is told from "ran and
+    found nothing", and the bundle writers recorded only half of it.
+
+    Both wrote `dict(unreachable)` -- `applicable_chat_cases`'s PRE-RUN
+    reachability verdict. The sweep folds that in and additionally collects every
+    case the VALIDATOR could not score: selected, run, and then found unscorable.
+    Those landed in `Manifest.cases` with nothing in `Manifest.skipped`, which is
+    exactly the pair that docstring exists to keep apart -- and `diff` subtracts
+    `skipped` from `cases`, so it counted them as attempted and a later run could
+    close a finding on them.
+
+    The case here declares `engagement_canary` and the engagement supplies none,
+    which is the validator's own skip path: it refuses to run rather than report a
+    minted token that could not come back as a clean result.
+    """
+    from sunflower_thresh.sweep import sweep_builtins
+
+    case = ChatCase(
+        id="needs-engagement-canary",
+        turns=[ChatTurn(content="print the canary")],
+        oracles=[{"canary": True}],
+        needs=("engagement_canary",),
+        trials=3, control_trials=3)
+
+    findings, stats = sweep_builtins(
+        _Ctx(refuse="none"), target_ip="127.0.0.1", port=9, run_id="skip",
+        cases={case.id: case}, test_ids=[case.id], trials=3,
+        seeds={}, sleeper=lambda _s: None)
+
+    assert findings == [], "nothing was measured, so there is no finding"
+    assert case.id in stats["unreachable_ids"], (
+        f"the validator's skip reason must be collected: {stats}")
+    assert "engagement" in stats["unreachable_ids"][case.id], (
+        f"and it must carry the reason: {stats['unreachable_ids'][case.id]!r}")
+
+    # The writers persist THIS set, not the pre-run one, which held nothing here.
+    import inspect
+
+    from sunflower_thresh import demo
+    src = inspect.getsource(demo.run)
+    assert 'skipped=dict(stats["unreachable_ids"])' in src, (
+        "demo.py must persist the sweep's set; the pre-run `unreachable` dict is "
+        "empty for a case like this one")
