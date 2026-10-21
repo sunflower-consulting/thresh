@@ -38,7 +38,6 @@ from sunflower_thresh.corpus import (
     PLACEHOLDER_RE,
     REFUSAL_RUBRIC,
     REPEAT_MAX_N,
-    RUBRIC_RUNGS,
     SYNTHESISED_JUDGE_RUBRICS,
     CorpusCase,
     CorpusError,
@@ -422,8 +421,11 @@ def test_no_rubric_type_in_the_corpus_is_unexpressible():
     """A type with no rung means a case runs blind, so the table and the corpus have
     to agree."""
     corpus = load_corpus(CORPUS)
+    # `assert corpus.rubrics` first, because `unmapped_types() == {}` is satisfied
+    # by a corpus that named no rubrics at all -- a wrong CORPUS path would have
+    # read as agreement.
+    assert corpus.rubrics, "the corpus named no rubrics, so this test checked nothing"
     assert corpus.unmapped_types() == {}
-    assert set(corpus.unmapped_types()) <= set(RUBRIC_RUNGS)
 
 
 @needs_corpus

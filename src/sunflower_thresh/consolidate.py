@@ -39,6 +39,7 @@ from sunflower_thresh.export import (
     exported_runs,
     load_exported_run,
 )
+from sunflower_thresh.schemas.finding import FindingState
 
 #: Directories under an engagement that consolidation must never read. `leads/`
 #: holds raw scanner output; `evidence/` is content-addressed blobs a human cites
@@ -47,7 +48,14 @@ NEVER_READ = frozenset({"leads", "evidence", "pdf", "build"})
 
 #: Case states that may be quoted as a measured result. A case that was never
 #: probed has no row to quote and is reported by the not-tested section instead.
-QUOTABLE_STATES = frozenset({"validated", "reproduced", "rejected", "confirmed"})
+#:
+#: Written out member by member and NOT as `CITABLE_STATES | {REJECTED}`: the two
+#: are separate policies, and coupling them would silently drop a state from the
+#: appendix the moment it left the citable set.
+QUOTABLE_STATES = frozenset({FindingState.VALIDATED.value,
+                             FindingState.REPRODUCED.value,
+                             FindingState.REJECTED.value,
+                             FindingState.CONFIRMED.value})
 
 #: The seam problem this file cannot solve on its own, written where whoever hits
 #: it will be looking.

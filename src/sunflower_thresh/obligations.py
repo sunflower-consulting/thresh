@@ -61,6 +61,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from sunflower_thresh.schemas.finding import FindingState
+
 #: Vendored, not fetched. thresh runs offline by design, and a regulatory dataset
 #: resolved at run time would mean a report could not be rebuilt later from its own
 #: bundle -- which is the only reason the copy exists. See LICENSE-DATA: the file is
@@ -573,7 +575,17 @@ def read_engagement_scope(engagement_dir: str | Path) -> EngagementScope:
 #: lost by leaving both out, because their techniques are still in `attempted_taxa`,
 #: so the obligations bearing on them read `probed-clean` -- we looked and nothing
 #: stands -- which is the true statement and a better one.
-CITABLE_STATES = frozenset({"validated", "reproduced", "confirmed"})
+#:
+#: Derived from `FindingState`, not written out as strings. Both halves of this
+#: pair used to be raw literals, and they drift in the one direction nothing
+#: catches: a state RENAMED in the enum leaves the literal matching nothing, so an
+#: obligation a finding speaks to silently stops being cited and the appendix
+#: reports it `probed-clean`. Measured: leaving this set stale while syncing its
+#: sibling left the suite 560/560 green with `coverage()` reporting the wrong
+#: status. The enum is now the single statement, so a rename breaks at import.
+CITABLE_STATES = frozenset({FindingState.VALIDATED.value,
+                            FindingState.REPRODUCED.value,
+                            FindingState.CONFIRMED.value})
 
 
 def citable_findings(findings: list[dict]) -> list[dict]:
