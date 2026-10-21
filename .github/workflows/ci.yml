@@ -86,14 +86,24 @@ jobs:
       - run: thresh --version
       - run: thresh doctor
       # The headline is `thresh demo`, so CI runs the command a reader types
-      # first and asserts the two things the output must contain: a measured
-      # row, and a case reported as not probed rather than as a zero.
+      # first and asserts the things the output must contain: a measured row, a
+      # case reported as not probed rather than as a zero, and the CALLBACK row.
+      #
+      # The callback assertion is here for the same reason as the rubric check
+      # below, and not because the suite is missing one --
+      # `test_the_out_of_band_rung_is_demonstrated` already pins it. The suite
+      # runs from the CHECKOUT. This job runs the wheel, and "proof on a channel
+      # the target does not control" is the claim the README leads with, so the
+      # one artefact a reader installs is where it is worth asserting. Without
+      # the rung name, a demo that lost the renderer would still print a full
+      # table of five rows and pass.
       - name: the quickstart produces a measured result with no key
         run: |
           thresh demo | tee /tmp/demo.txt
           grep -q "cases considered" /tmp/demo.txt
           grep -q "not probed" /tmp/demo.txt
           grep -q "matched" /tmp/demo.txt
+          grep -qE "chat-markdown-exfil +CALLBACK" /tmp/demo.txt
 
       # The rubric library is DATA, and `src/` held no non-Python file before it.
       # So the failure mode this catches is specific and invisible locally: a
