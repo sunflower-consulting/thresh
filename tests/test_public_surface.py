@@ -97,3 +97,47 @@ def test_the_stability_statement_exists_and_is_honest():
     assert "measurements.yaml" in doc and "control-mapping.yaml" in doc
     assert sunflower_thresh.__version__.endswith(".dev0"), (
         "when this stops being a dev version the statement above needs rewriting")
+
+
+def test_the_policy_package_re_exports_nothing():
+    """A facade nobody imports still costs every importer of the package.
+
+    `policy/__init__.py` re-exported seven names and nothing in the repository
+    imported any of them -- all twenty call sites name a submodule directly. The
+    cost was not hypothetical. `tools/base.py` and `tools/conversation.py` need
+    `policy.decision`, 125 lines of request shapes, and importing it ran the
+    facade first: measured at 9 `sunflower_thresh` modules including the engine,
+    the kill switch and the audit log, against 5 with the facade empty.
+
+    `thresh --help` advertising itself as cheap is a claim this guards, and
+    `schemas/__init__.py` already made the same decision for the same reason.
+    """
+    import sys
+
+    from sunflower_thresh import policy
+
+    assert not getattr(policy, "__all__", None), (
+        f"policy/__init__.py re-exports {policy.__all__}; import the submodule "
+        f"you need instead, as schemas/__init__.py does")
+
+    for name in ("Decision", "PolicyEngine", "KillSwitch", "RateLimiter",
+                 "ToolRequest", "TargetRef", "DenyReason"):
+        assert not hasattr(policy, name), (
+            f"sunflower_thresh.policy.{name} is re-exported again")
+
+    # The consequence, not just the shape: the request module must not drag the
+    # engine in behind it. Asserted on a subprocess-clean import graph, because
+    # by the time this test runs the suite has imported everything already.
+    import subprocess
+    code = (
+        "import sys;"
+        "import sunflower_thresh.policy.decision;"
+        "print(int('sunflower_thresh.policy.engine' in sys.modules),"
+        "      int('sunflower_thresh.policy.killswitch' in sys.modules),"
+        "      int('sunflower_thresh.audit.log' in sys.modules))"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                         text=True, check=True).stdout.split()
+    assert out == ["0", "0", "0"], (
+        f"importing policy.decision loaded engine/killswitch/audit = {out}; "
+        f"something re-introduced an eager import in the policy package")

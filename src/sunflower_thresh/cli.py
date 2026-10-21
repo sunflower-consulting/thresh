@@ -874,10 +874,7 @@ def _classify(args: argparse.Namespace) -> int:
             return 2
         answers = {str(k): bool(v) for k, v in raw.items() if v is not None}
     elif args.ask:
-        known = {q["id"] for q in asked}
         for q in asked:
-            if q["id"] not in known:
-                continue
             print()
             for line in _wrap(str(q.get("ask") or ""), width=76):
                 print(f"  {line}")
