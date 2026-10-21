@@ -252,10 +252,53 @@ def test_a_refusal_is_written_to_the_audit_log(lab_inventory):
 
 
 @pytest.mark.parametrize("reason", list(DenyReason))
-def test_every_deny_reason_is_a_distinct_readable_string(reason):
-    """They reach a report, so they are part of the deliverable surface."""
+def test_every_deny_reason_is_a_readable_string(reason):
+    """They reach a report, so they are part of the deliverable surface.
+
+    Named for what the per-member body actually checks. It was
+    `..._is_a_distinct_readable_string`, and a test parametrized over one member
+    at a time cannot evaluate distinctness at all -- the set property it was named
+    for is in the test below.
+    """
     assert reason.value and reason.value == reason.value.lower()
     assert " " not in reason.value
+
+
+def test_no_two_deny_reasons_share_a_value():
+    """Two members with the same value are not an error in Python.
+
+    `enum` makes the second an ALIAS of the first, so `list(DenyReason)` never
+    shows the collision and neither does any test iterating it -- which is why the
+    test above could not have caught this however it was named. `__members__` is
+    the only view that shows aliases.
+
+    The collision matters because `deny_code` is the key everything counts by.
+    The sweep tallies denials by that string, so two distinct refusal paths
+    collapsed onto one member mis-attribute the tally, and a reason aliased onto
+    `RATE_LIMITED` would be retried by `sweep.TRANSIENT_DENIALS` even though it
+    does not clear on its own -- a run that spends its budget re-sending a case
+    the gate will refuse every time.
+
+    Measured before this existed: adding `RATE_LIMITED_SOFT = "rate_limited"`,
+    an exact duplicate, left the parametrized test at 11 passed rather than
+    rising to 12, because the alias is not a member.
+    """
+    aliases = {name: member.value for name, member in DenyReason.__members__.items()
+               if DenyReason.__members__[name] is not member or
+               name != member.name}
+    assert not aliases, (
+        f"these DenyReason names are ALIASES of another member, so they vanish "
+        f"from `list(DenyReason)` and from every count keyed on deny_code: "
+        f"{aliases}")
+
+    values = [m.value for m in DenyReason.__members__.values()]
+    assert len(values) == len(set(values)), (
+        f"two deny reasons share a value: "
+        f"{sorted(v for v in values if values.count(v) > 1)}")
+
+    assert len(DenyReason.__members__) == len(list(DenyReason)), (
+        "`__members__` and `list(DenyReason)` disagree, which is exactly what an "
+        "alias looks like")
 
 
 # --- a dropped field is an error, not a default ----------------------------------

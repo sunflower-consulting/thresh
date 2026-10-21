@@ -350,7 +350,12 @@ def test_closure_is_not_a_finding_state():
     closure be typed by hand into a findings file, and a hand-typed closure is what
     a retest exists to replace."""
     assert not any(s.value == "closed" for s in FindingState)
-    assert "closed" not in {s.value for s in FindingState}
+    # The MEMBER name, not a second look at the values. The line here used to be
+    # `"closed" not in {s.value for s in FindingState}`, which is the assertion
+    # above spelled differently: either one alone catches `CLOSED = "closed"`, and
+    # neither catches `CLOSED = "shut"` -- a typed closure under another spelling,
+    # which is the thing the docstring says must not exist.
+    assert "CLOSED" not in FindingState.__members__
 
 
 def test_nothing_in_the_output_came_from_a_status_somebody_typed(tmp_path):

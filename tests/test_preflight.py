@@ -190,8 +190,17 @@ def test_a_lapsed_authorization_stops_the_run_and_the_gate_agrees():
         project="acme", tool=CHAT_TOOL, action_class=ActionClass.ACTIVE,
         target=target_ref("chat.acme.invalid")))
     assert not decision.allowed
-    assert decision.deny_code in (DenyReason.AUTH_INACTIVE,
-                                  DenyReason.INVENTORY_UNVERIFIED)
+    # EXACTLY this reason, not "one of two". `load_inventory` sets `verified` from
+    # `is_active()`, so an already-lapsed authorisation is stopped there and never
+    # reaches the gate's per-call AUTH_INACTIVE branch -- which means a disjunction
+    # over the two is satisfied by whichever fires and cannot tell them apart.
+    # Measured: deleting the AUTH_INACTIVE guard from `PolicyEngine._evaluate` left
+    # this test passing. The branch it does not reach is covered by
+    # tests/test_policy_gate.py::test_an_authorisation_that_lapses_mid_window.
+    #
+    # This is the second disjunction of this exact shape found in this file. The
+    # first let a real guard be deleted with the suite green.
+    assert decision.deny_code is DenyReason.INVENTORY_UNVERIFIED
 
 
 def test_nothing_is_sent_when_the_scope_check_fails():
