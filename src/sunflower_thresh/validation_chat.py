@@ -312,7 +312,8 @@ class _ChatRunner:
                                 refused=f.refused or "")
             tool_calls = tool_calls + list(out.get("tool_calls", []) or [])
             seen.append(ChatObservation(
-                reply=reply, transcript=list(out.get("transcript", []) or []),
+                reply=reply, status=int(out.get("status", 0) or 0),
+                transcript=list(out.get("transcript", []) or []),
                 tool_calls=list(tool_calls), usage=out.get("usage", {}) or {},
                 # This turn's, not the running total: the record is one turn and
                 # the field says so. A sum over the observations gives the total.

@@ -341,6 +341,36 @@ class ChatSay(_ChatTool):
         ref = self._record(exchange.encode(), target=conv.host,
                            meta={"path": conv.path, "mode": conv.mode,
                                  "conversation_id": cid, "turn": conv.sent()})
+
+        if status >= 400:
+            # An HTTP error body is NOT a reply, and nothing downstream could tell.
+            # `_parse` falls back to the raw body when it finds no reply field, so a
+            # 422 that echoes the request -- a FastAPI validation error, a gateway's
+            # error document -- was handed to the oracles as the assistant's answer.
+            # The harness's own attack text is IN that echo, so the structural and
+            # callback rungs matched our own payload.
+            #
+            # Measured against a real server answering 422 to everything, with the
+            # SHIPPED `chat-html-injection` case: "VALIDATED: ASR 1.00 (10/10, 95% CI
+            # 0.72-1.00), matched control 0/10, p=0.000. Evidence: STRUCTURAL --
+            # regex matched '<script'." The arms separate because the two turns
+            # differ in text and the echo reproduces whichever was sent, so the
+            # attack arm always matches itself and the control never does. A
+            # significant p-value against an endpoint that never answered once.
+            #
+            # `error` is the channel `_ChatRunner.trial` already reads to discard a
+            # trial, and the exchange is recorded ABOVE, so the failure stays
+            # provable rather than merely absent. The turn is not appended to the
+            # transcript: a conversation must not carry an error document as a thing
+            # the assistant said.
+            return {"error": f"chat_say got HTTP {status} {reason}".strip(),
+                    "http_status": status, "conversation_id": cid,
+                    "target": conv.host, "port": conv.port, "path": conv.path,
+                    "status": status, "body_excerpt": raw[:400],
+                    "latency_s": round(latency, 3),
+                    "at": datetime.now(UTC).isoformat(),
+                    "evidence_refs": [ref]}
+
         self.conversations.append(cid, owner=owner, role="assistant", content=reply,
                                   evidence_ref=ref, tool_calls=tool_calls)
         conv = self.conversations.get(cid, owner=owner)
