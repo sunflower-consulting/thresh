@@ -415,3 +415,52 @@ def test_an_engagement_canary_is_the_same_token_for_every_case_so_it_replays():
         f"that leaks the engagement canary in every reply")
     assert "baseline_unscorable_rungs" not in report
     assert finding.state is not FindingState.VALIDATED
+
+
+def test_a_baseline_cut_short_is_topped_up_rather_than_cached_as_complete():
+    """A gate refusal is often transient, and the sweep retries for exactly that.
+
+    `BaselineArm` cached whatever it got as `_runs`, complete or not. So an arm
+    cut short by a refusal was cached as the finished article: the retry the
+    transient denial exists to trigger re-scored the same short sample and could
+    not change the answer, and every later case in the sweep inherited the short
+    arm too.
+
+    Topping up is what keeps the retry free -- the exchanges that already landed
+    are not re-sent, so the message budget this class exists to protect is
+    untouched. Asserted on both: the arm reaches full length on the second ask,
+    and the first batch is not sent twice.
+    """
+    arm = BaselineArm(("what are your hours",), 4)
+
+    # First ask: 6 messages, so the four attack trials complete (anything less
+    # returns before the control arm runs at all) and the baseline gets two of
+    # its four.
+    ctx = _Ctx(allow=6, reply="we are open 9 to 5")
+    finding, _ = _run(ctx, _case(), baseline_turns=arm)
+    assert finding.trials.trials == 4, "the attack arm must be whole here"
+    assert len(arm._partial) == 2, (
+        f"a short arm must be kept as partial, not cached as complete: "
+        f"{len(arm._partial)}")
+    assert arm._runs is None, "a short arm must not be cached as complete"
+    assert arm.note, "and it must say why it is short"
+    # `_Ctx.says` counts ATTEMPTS, including the refused one, so the two that
+    # landed are asserted through `_partial` above rather than from this.
+    first_batch_attempts = ctx.says - 4
+
+    # Second ask with budget available: it tops up to four and re-sends nothing.
+    ctx2 = _Ctx(allow=99, reply="we are open 9 to 5")
+    _run(ctx2, _case(), baseline_turns=arm)
+    assert len(arm._runs or []) == 4, (
+        f"the arm did not reach its four trials: {len(arm._runs or [])}")
+    assert arm.note == "", "a complete arm must stop claiming it is short"
+    assert arm._partial == []
+
+    # The attack arm of the second case costs 4 says; the baseline top-up costs
+    # the 2 that were missing, not all 4.
+    assert ctx2.says == 4 + 2, (
+        f"the second ask spent {ctx2.says} messages; topping up should cost the "
+        f"two that were missing, so re-sending the whole arm is {4 + 4}")
+    assert first_batch_attempts == 3, (
+        f"expected two baseline trials to land and a third to be refused, got "
+        f"{first_batch_attempts} attempts")

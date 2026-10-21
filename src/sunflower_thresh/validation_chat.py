@@ -152,6 +152,16 @@ class BaselineArm:
         self.turns = [ChatTurn(content=t) for t in turns if t]
         self.trials = max(0, int(trials))
         self._runs: list[list[ChatObservation]] | None = None
+        #: Exchanges that landed before the arm was cut short. Kept apart from
+        #: `_runs`, which means "complete": a PARTIAL arm cached as complete makes
+        #: every later case, and every retry of this one, re-score the same short
+        #: sample -- so the retry the gate's transient denial exists to trigger
+        #: cannot change anything.
+        #:
+        #: Topping up rather than discarding is what keeps a re-attempt free. The
+        #: exchanges already sent are not sent again, so the message budget this
+        #: class exists to protect is untouched.
+        self._partial: list[list[ChatObservation]] = []
         #: Why it is empty, when it is. An absent baseline must be visible as a reason
         #: rather than as a silent zero -- a control that never ran and a control that
         #: came back clean are opposite claims.
@@ -161,17 +171,28 @@ class BaselineArm:
         return bool(self.turns and self.trials)
 
     def runs(self, runner, seeds: dict) -> list[list[ChatObservation]]:
-        """The recorded baseline exchanges, sending them if this is the first ask."""
+        """The recorded baseline exchanges, sending what is still missing.
+
+        Only a COMPLETE arm is cached as `_runs`. A short one goes to `_partial`
+        and is topped up on the next ask, which matters because a gate refusal is
+        often transient: the sweep sleeps and retries the case, and a partial arm
+        cached as complete made that retry re-score the same short sample. The
+        retry then could not change the answer, and the arm it was retrying for
+        stayed short for every later case too.
+        """
         if self._runs is not None:
             return self._runs
-        out: list[list[ChatObservation]] = []
-        for _ in range(self.trials):
+        out = list(self._partial)
+        while len(out) < self.trials:
             seen = runner.trial(self.turns, seeds)
             if seen is None:
                 self.note = (f"the baseline stopped after {len(out)} of {self.trials} "
                              f"({runner.deny_code or 'the target stopped answering'})")
-                break
+                self._partial = out
+                return out
             out.append(seen)
+        self.note = ""
+        self._partial = []
         self._runs = out
         return out
 
@@ -781,7 +802,12 @@ def validate_chat_case(
 
     # The second half of the record. `deny_code` may have been written during the
     # control arm, after the check above had already run.
-    if runner.deny_code:
+    #
+    # `not report["gate_denied"]` so the ATTACK arm's code survives when both arms
+    # were hit: the first denial is the one that stopped the measurement, and
+    # overwriting it with whatever the control arm hit later loses the reason a
+    # reader needs.
+    if runner.deny_code and not report["gate_denied"]:
         report["gate_denied"] = True
         report["deny_code"] = runner.deny_code
     #: A refused teardown, kept where a reader can see it and no consumer reads it
