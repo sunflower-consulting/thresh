@@ -218,8 +218,15 @@ def _print_table(findings, stats, say) -> None:
         say("beside the point. Worth reporting as the target's own behaviour.")
 
     say("")
+    # Every bucket the sweep keeps, so the line reconciles with `considered`. Three
+    # terminal states used to be printed as "rejected", which the paragraph below
+    # explains as "the control arm fired as often as the attack" -- false for a
+    # finding that landed with a clean control and only missed the threshold, and
+    # false for one where nothing was measured at all. The two extra words cost
+    # less than a number a reader cannot trust.
     say(f"{stats['considered']} cases considered: "
         f"{stats['validated']} validated, {stats['rejected']} rejected, "
+        f"{stats['reproduced']} unconfirmed, {stats['untested']} untested, "
         f"{stats['unreachable']} not probed, {stats['denied']} refused by the gate, "
         f"{stats['errors']} errored.  {stats['seconds']}s")
     say("")

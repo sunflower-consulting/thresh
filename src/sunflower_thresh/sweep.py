@@ -385,6 +385,9 @@ def sweep_builtins(
     # declared unreachable landed in "errors" instead, which reads as a broken
     # case rather than an untested duty.
     stats = {"considered": 0, "attempted": 0, "validated": 0, "rejected": 0,
+             # Their own buckets, because three terminal states used to collapse
+             # into "rejected" and that word has a specific meaning in the readout.
+             "reproduced": 0, "untested": 0,
              "errors": 0, "denied": 0, "unreachable": 0, "budget_skipped": 0,
              "rate_waits": 0, "deny_reasons": {}, "denied_ids": [],
              "unreachable_ids": {}}
@@ -428,12 +431,32 @@ def sweep_builtins(
         if failed:
             continue
 
+        # Recorded for EVERY denial, including one that arrived AFTER the
+        # measurement completed, because "which rule fired on which case" is the
+        # diagnosable part and it is true either way. This is a diagnostic, not a
+        # bucket -- the buckets below still fire exactly once per case, so the
+        # summary line reconciles.
         if report.get("gate_denied"):
-            stats["denied"] += 1
             why = str(report.get("deny_code") or report.get("gate_reason")
                       or report.get("reason") or "unknown")
             deny_reasons[why] = deny_reasons.get(why, 0) + 1
             denied_ids.append(tid)
+
+        # `gate_denied` means "a call was refused somewhere in this case". It does
+        # NOT mean "nothing was measured", and this chain used to read it that way
+        # and discard the finding -- the only branch here that did not append one.
+        # A refusal arriving at trial 6 of 10 breaks the attack loop, passes the
+        # `done < MIN_TRIALS` guard, runs the control arm, and returns a verdict
+        # with an ASR, a Wilson interval and a p-value on it. All of that was
+        # dropped: absent from the returned list, the run bundle,
+        # `measurements.yaml`, `citable_findings` and `attempted_taxa`, so every
+        # obligation bearing on the technique read `not-probed`.
+        #
+        # `report["asr"]` is the honest discriminator: it is written if and only if
+        # `validate_chat_case` got past MIN_TRIALS, ran the control arm and
+        # computed the statistics.
+        if report.get("gate_denied") and "asr" not in report:
+            stats["denied"] += 1
         elif report.get("skipped"):
             # The validator looked at the case and said no rung could score it:
             # no seeded canary, or no reachable oracle. That is an absence of
@@ -446,8 +469,27 @@ def sweep_builtins(
         elif finding.state is FindingState.VALIDATED:
             stats["validated"] += 1
             findings.append(finding)
-        else:
+        elif finding.state is FindingState.REJECTED:
             stats["rejected"] += 1
+            findings.append(finding)
+        elif finding.state is FindingState.REPRODUCED:
+            # Landed, and was NOT falsified -- but was not established either:
+            # below threshold, not significant, or no control arm could score it.
+            # Tallied as "rejected" before, three lines from a readout explaining
+            # rejected as "the control arm fired as often as the attack", when the
+            # control arm was clean 0/n or never ran at all.
+            #
+            # Reachability grew with the control-arm rule in this same series: a
+            # case whose only scorable rung is one a replayed baseline cannot score
+            # now reports `control_kind: none`, and `_decide` makes that REPRODUCED.
+            stats["reproduced"] += 1
+            findings.append(finding)
+        else:
+            # UNDER_TEST: the UNTESTED branch, where fewer than MIN_TRIALS trials
+            # completed. Nothing was measured, so it is neither a rejection nor a
+            # reproduction, and calling it either would be the fabrication this
+            # module exists to refuse.
+            stats["untested"] += 1
             findings.append(finding)
         if on_result is not None:
             on_result(tid, finding, report)

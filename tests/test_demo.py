@@ -70,6 +70,7 @@ def test_the_summary_counts_add_up_to_the_cases_considered(demo):
 
     out = demo()
     m = re.search(r"(\d+) cases considered: (\d+) validated, (\d+) rejected, "
+                  r"(\d+) unconfirmed, (\d+) untested, "
                   r"(\d+) not probed, (\d+) refused by the gate, (\d+) errored", out)
     assert m, out
     considered, *parts = (int(g) for g in m.groups())
