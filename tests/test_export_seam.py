@@ -784,3 +784,63 @@ def test_the_renderer_refuses_a_rung_it_cannot_render():
     assert not errs("CANARY")
     assert errs("EvidenceStrength.CANARY"), "the repr must be refused"
     assert errs("5"), "a bare number must be refused"
+
+
+def test_an_engagement_file_that_will_not_parse_stops_the_export(tmp_path):
+    """A missing bracket must not delete a client's regulatory appendix.
+
+    `read_engagement_scope` caught `yaml.YAMLError` and returned the same empty
+    `EngagementScope()` that an absent `ai_system` block returns. `__bool__` is
+    False for both, so the CLI printed "no ai_system block in engagement.yaml ...
+    Add `ai_system: {instruments: [...], classes: [...]}`" about a file where that
+    block is present and one bracket short, and returned 0.
+
+    The damage is in the re-export. `write_run` unlinks a control mapping already
+    on disk whenever the current export has none -- correct for
+    `--no-control-mapping` and for a genuinely de-scoped engagement, and
+    destructive only because the caller could not tell "de-scoped" from "did not
+    parse". So: a good export writes the mapping, the operator drops a bracket,
+    the re-export deletes it, `consolidate` removes the engagement-root copy, and
+    the appendix is gone at exit 0 with the operator sent to add a block that is
+    already there.
+
+    Asserted on the three things that matter: a non-zero exit, the parse error
+    named, and the existing mapping still on disk.
+    """
+    from sunflower_thresh.export import CONTROL_MAPPING
+
+    eng = _engagement(tmp_path / "eng", instruments=["ai-act"],
+                      classes=["annex-iii-high-risk"])
+
+    # A good export first, so there is something to destroy.
+    assert _run(tmp_path, eng, "2026-01-01T00-00-00_a", [_finding()]) == 0
+    written = eng / "runs" / "2026-01-01T00-00-00_a" / CONTROL_MAPPING
+    assert written.is_file(), "the first export must write a mapping to destroy"
+    before = written.read_text()
+
+    # Now break the file the way an operator does: one bracket short. Written as
+    # raw text rather than through `yaml.safe_dump`, which cannot emit something
+    # that does not parse -- and a `.replace()` against dumped block lists would
+    # silently match nothing and leave the file VALID, which is how the first
+    # version of this test passed against the unfixed code.
+    good = (eng / "engagement.yaml").read_text()
+    assert "ai_system:" in good
+    (eng / "engagement.yaml").write_text(
+        good + "\nbroken: [one, two\n")
+    with pytest.raises(yaml.YAMLError):
+        yaml.safe_load((eng / "engagement.yaml").read_text())
+
+    code = _run(tmp_path, eng, "2026-01-01T00-00-00_b", [_finding()])
+    assert code != 0, (
+        "a malformed engagement.yaml returned success; the next step deletes the "
+        "mapping already on disk")
+    assert written.read_text() == before, (
+        "the mapping from the earlier, good export was modified or deleted")
+
+
+def test_a_genuinely_descoped_engagement_still_exports_cleanly(tmp_path):
+    """The control. Raising on a parse failure must not turn "this client carries
+    no regulated system" into an error -- that is an ordinary engagement, and the
+    export says so and returns 0."""
+    eng = _engagement(tmp_path / "eng", instruments=[], classes=[])
+    assert _run(tmp_path, eng, "2026-01-01T00-00-00_a", [_finding()]) == 0

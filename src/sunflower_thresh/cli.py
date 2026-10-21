@@ -994,6 +994,8 @@ def _obligations(args: argparse.Namespace) -> int:
 
 
 def _export(args: argparse.Namespace) -> int:
+    import yaml as _yaml
+
     from sunflower_thresh import runbundle
     from sunflower_thresh.export import write_run
     from sunflower_thresh.obligations import (
@@ -1021,7 +1023,20 @@ def _export(args: argparse.Namespace) -> int:
         return 2
     # The regulatory scope comes from the engagement's own file rather than from a
     # flag or from the signed inventory. See `obligations.EngagementScope`.
-    scope = read_engagement_scope(args.engagement_dir)
+    #
+    # A file that will not parse stops the export, and it has to: a run with no
+    # mapping makes `write_run` UNLINK the mapping already on disk, so continuing
+    # would delete a correct regulatory appendix because of a missing bracket.
+    # Exiting here is also what keeps that unlink from being reached at all.
+    try:
+        scope = read_engagement_scope(args.engagement_dir)
+    except (OSError, _yaml.YAMLError) as exc:
+        print(f"{ENGAGEMENT_FILE} in {args.engagement_dir} could not be read, so "
+              f"this run cannot be scoped against the catalogue: {exc}",
+              file=sys.stderr)
+        print("Nothing was written. Fix the file and re-run; the mapping already "
+              "in the engagement is untouched.", file=sys.stderr)
+        return 2
     mapping = None
     scope_note = ""
     if scope and not args.no_control_mapping:

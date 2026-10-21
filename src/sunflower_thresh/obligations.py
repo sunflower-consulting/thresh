@@ -547,10 +547,28 @@ def read_engagement_scope(engagement_dir: str | Path) -> EngagementScope:
     path = Path(engagement_dir) / ENGAGEMENT_FILE
     if not path.is_file():
         return EngagementScope()
-    try:
-        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
-        return EngagementScope()
+    # NOT caught. A file that is there and does not parse is a read failure, and
+    # returning the empty scope made it indistinguishable from an engagement that
+    # simply carries no `ai_system` block -- `__bool__` is False for both.
+    #
+    # What that cost, reproduced: a good export writes a 22-obligation control
+    # mapping; the operator edits engagement.yaml and drops one `]`; the re-export
+    # reads an empty scope, writes no mapping, and `export.write_run` then UNLINKS
+    # the mapping already on disk because this run has none. `consolidate` removes
+    # the engagement-root copy too. The client's entire regulatory appendix is
+    # gone, exit 0 throughout, and the operator is told to "add `ai_system:
+    # {instruments: [...], classes: [...]}`" to a file where that block is sitting
+    # one bracket short.
+    #
+    # The unlink in export.py is right and stays: it is correct for
+    # `--no-control-mapping` and for a genuinely de-scoped engagement. It was only
+    # destructive because its caller could not tell "de-scoped" from "did not
+    # parse". The `is_file()` guard above still answers the absent-file case this
+    # function's docstring exists for.
+    doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    # These two stay caught, because they are scoping FACTS rather than read
+    # failures: a file that parses to a non-dict, or an `ai_system` that is not a
+    # mapping, really does declare no scope.
     block = (doc.get("ai_system") or {}) if isinstance(doc, dict) else {}
     if not isinstance(block, dict):
         return EngagementScope()
