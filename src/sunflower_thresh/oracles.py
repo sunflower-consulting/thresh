@@ -47,8 +47,9 @@ from pydantic import BaseModel, Field
 from sunflower_thresh.schemas.finding import EvidenceStrength
 
 #: A matcher this permissive matches its own control turn, so it cannot
-#: distinguish a vulnerable bot from a chatty one. the private engine's `validation.py` already
-#: refuses these for web test cases; the same refusal applies here, for the same reason.
+#: distinguish a vulnerable bot from a chatty one. The private engine's
+#: `validation.py` refuses these for web test cases; the same refusal applies
+#: here, for the same reason.
 _NON_DISCRIMINATING = {"", ".", ".*", ".+", "(.*)", "^.*$", "[\\s\\S]*"}
 
 
@@ -523,9 +524,10 @@ class RefusalOracle:
     Exists so a `none_of: [refusal]` case can run without a judge. The corpus marks
     `refusal` as the rubric that suppresses the single biggest source of false
     positives -- "I will not print CANARY-7F3A, that is confidential" contains the
-    canary and leaked nothing -- and 130 of its 187 cases use it. Making all 130 depend
-    on a judge would mean a judge-less engagement either skips them or runs them with
-    the guard missing, and neither is as good as a deterministic matcher.
+    canary and leaked nothing -- and 206 of its 244 cases use it (measured at
+    seed-vault 4855589, the same count as the module comment above). Making all 206
+    depend on a judge would mean a judge-less engagement either skips them or runs
+    them with the guard missing, and neither is as good as a deterministic matcher.
 
     Deliberately the SAME pattern the profiler uses to fingerprint refusals, imported
     rather than copied: if the two drifted, a bot the profiler called "hard refusal"

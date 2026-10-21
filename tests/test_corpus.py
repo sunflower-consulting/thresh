@@ -604,3 +604,40 @@ def test_every_vocabulary_the_corpus_uses_is_one_this_package_declares():
         "\n  ".join(["the corpus uses vocabulary this package does not declare:"]
                     + problems)
         + "\n  Nothing imports these tuples, so nothing else would have failed.")
+
+
+def test_no_module_quotes_a_corpus_size_that_disagrees_with_its_neighbours():
+    """One corpus, one pair of numbers, however many comments cite it.
+
+    `oracles.py` carried both. A module comment said `refusal` covers "206 of its
+    244 cases (measured at seed-vault 4855589)"; `RefusalOracle`'s own docstring,
+    four hundred lines down, said "130 of its 187 cases use it. Making all 130
+    depend on a judge ...". Same corpus, same rubric, two answers, and the stale
+    pair was the one a reader of the class would find.
+
+    These figures are the argument for shipping a deterministic refusal matcher
+    at all -- "most of the library depends on this" is the reason it is not left
+    to a judge -- so a reader comparing 130/187 against the corpus they have in
+    front of them has no way to tell which sentence to trust.
+
+    Scanned rather than pinned to one blessed figure: pinning would need updating
+    on every corpus revision and would fail for the whole repository at once. The
+    rule enforced here is narrower and does not go stale: a single source file
+    must not quote two DIFFERENT "N of M cases" totals.
+    """
+    import re
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "src" / "sunflower_thresh"
+    pattern = re.compile(r"\b(\d{2,4})\s+of\s+(?:its\s+)?(\d{2,4})\s+cases\b")
+
+    offenders = {}
+    for path in sorted(src.rglob("*.py")):
+        totals = {m.group(2) for m in pattern.finditer(path.read_text())}
+        if len(totals) > 1:
+            offenders[path.name] = sorted(totals)
+
+    assert not offenders, (
+        "these files each quote more than one corpus size, so at least one is "
+        f"stale: {offenders}. Make them agree, and cite the seed-vault revision "
+        "the figure was measured at.")
