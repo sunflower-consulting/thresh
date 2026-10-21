@@ -994,8 +994,6 @@ def _obligations(args: argparse.Namespace) -> int:
 
 
 def _export(args: argparse.Namespace) -> int:
-    from pathlib import Path
-
     from sunflower_thresh import runbundle
     from sunflower_thresh.export import write_run
     from sunflower_thresh.obligations import (
@@ -1080,8 +1078,6 @@ def _export(args: argparse.Namespace) -> int:
 
 
 def _consolidate(args: argparse.Namespace) -> int:
-    from pathlib import Path
-
     from sunflower_thresh.consolidate import quoted_runs, write
     from sunflower_thresh.export import CONTROL_MAPPING
 

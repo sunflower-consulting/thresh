@@ -25,7 +25,7 @@ from sunflower_thresh.context import AgentContext
 from sunflower_thresh.oracles import OBSERVATION_NEEDS, Scoring, Unscored, rung_needs
 from sunflower_thresh.schemas.finding import Finding, FindingState
 from sunflower_thresh.tools.chat import BUILTIN_CHAT_CASES
-from sunflower_thresh.validation_chat import validate_chat_case
+from sunflower_thresh.validation_chat import BaselineArm, validate_chat_case
 
 #: What each `needs` token requires before a chat case is REACHABLE.
 #:
@@ -163,8 +163,6 @@ def applicable_chat_cases(tool_names: Iterable[str],
     so neither could be checked by a reader or by a test. The argument does not
     rest on either number.
     """
-    from sunflower_thresh.tools.chat import BUILTIN_CHAT_CASES
-
     cases = BUILTIN_CHAT_CASES if cases is None else cases
     names = set(tool_names)
     if allowed is not None:
@@ -362,8 +360,6 @@ def sweep_builtins(
     # ONE baseline arm for the whole sweep: its questions are sent once and re-scored
     # by every case's own ladder. Built here rather than inside _validate_one, because
     # a per-case arm would re-send them and spend the message budget on controls.
-    from sunflower_thresh.validation_chat import BaselineArm
-
     if not isinstance(baseline_turns, BaselineArm):
         baseline_turns = BaselineArm(tuple(baseline_turns or ()), trials or 10)
 
