@@ -120,6 +120,30 @@ def finding_signature(finding: dict) -> str:
     return "sig:" + hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 
+def is_measurement(finding: dict) -> bool:
+    """Did this finding come from a run that measured anything at all?
+
+    `validate_chat_case`'s UNTESTED branch writes a finding for a run that
+    measured nothing: state UNDER_TEST, `trials.trials == 0`,
+    `trials.truncated == True`, and a `validation_result` beginning "UNTESTED: ...
+    nothing was measured". It exists so an absence of measurement is recorded
+    rather than dropped, which is right -- and `diff` then counted its mere
+    PRESENCE as proof the case had been re-tested.
+
+    What that closed: the row itself reached `closed` / `unverified` as though
+    measured, and it also stood as a measured, clean VARIANT under every sibling
+    case, closing those too. `Diff.incomplete` is `bool(not_retested)` and
+    `thresh diff` returns 1 on it to gate a release, so a retest that proved
+    nothing exited 0 and reported findings closed.
+    """
+    from sunflower_thresh.schemas.finding import FindingState
+
+    if str(finding.get("state") or "").lower() == FindingState.UNDER_TEST.value:
+        return False
+    trials = _trials(finding)
+    return not (trials.get("truncated") and not trials.get("trials"))
+
+
 @dataclass
 class Row:
     """One signature's story across the two runs."""
@@ -163,6 +187,12 @@ class Row:
         side = self.before if which == "before" else self.after
         if side is None:
             return "not attempted"
+        if not is_measurement(side):
+            # A run that measured NOTHING has no verdict to report either. The
+            # fallback below asserts one ("stood up" / "did not reproduce") from
+            # the state alone, and for an UNDER_TEST finding that is a claim about
+            # a measurement nobody has.
+            return "not measured"
         if not _trials(side).get("trials"):
             # No rate to report, so report the verdict, which is what changed.
             return ("stood up" if str(side.get("state") or "") in STOOD_UP
@@ -324,13 +354,25 @@ def diff_runs(before_dir: str | Path, after_dir: str | Path, *,
     # that did not run, which is a different thing from one that ran and failed.
     after_skipped = set(after_m.get("skipped") or {})
     after_attempted = set(after_m.get("cases") or ()) - after_skipped
+    # Whether the later run said what it attempted AT ALL. A bundle written before
+    # `cases` existed did not, and reading its silence as "attempted nothing" would
+    # report every old retest as incomplete. But a run that DECLARES an empty
+    # selection, or that left no manifest because it was killed before finishing,
+    # did attempt nothing -- and nothing attempted is unattempted, not clean.
+    # Without this, an `after` bundle that never really happened reported
+    # `incomplete=False` and `thresh diff` exited 0 on a retest that proved nothing.
+    after_scope_known = "cases" in after_m or not after_m
     # For the variant check, two sets and the difference between them matters.
     # `measured_now` is the cases the later run produced a FINDING for, in any state:
     # a case that ran and found nothing yields a rejected finding, so a case on the
     # attempt list with no finding at all did not complete -- gate-denied, errored,
     # or killed. Counting one of those as "re-tested without reproducing" would rest
     # a closure on a measurement nobody has.
-    measured_now = {cid for cid in (case_of(f) for f in after_f) if cid}
+    # `is_measurement` so a run that measured nothing cannot close anything. A
+    # case on the attempt list with no finding at all did not complete; one WITH an
+    # UNTESTED finding did not either, and that was the hole.
+    measured_now = {cid for cid in (case_of(f) for f in after_f
+                                    if is_measurement(f)) if cid}
     reproducing_now = {
         case_of(f) for f in after_f
         if str(f.get("state") or "") in STOOD_UP and case_of(f)}
@@ -345,7 +387,7 @@ def diff_runs(before_dir: str | Path, after_dir: str | Path, *,
             cases = set(old.get("test_cases") or ())
             if row.case:
                 cases.add(row.case)
-            if after_attempted and not (cases & after_attempted):
+            if after_scope_known and not (cases & after_attempted):
                 # Explicitly not attempted, and the bucket that catches a retest
                 # whose scope narrowed. It also catches "cannot tell": a finding
                 # recorded with no cases has nothing to match against the attempt
@@ -360,7 +402,14 @@ def diff_runs(before_dir: str | Path, after_dir: str | Path, *,
             continue
         now_real = str(row.after.get("state") or "") in STOOD_UP
         if was_real and not now_real:
-            _place_stopped(out, row, old, library, measured_now, reproducing_now)
+            if not is_measurement(row.after):
+                # The later run produced a finding for this case and measured
+                # nothing in it. That is a question for us, not a closure to report
+                # to a client, so it goes where `incomplete` can see it.
+                out.not_retested.append(row)
+            else:
+                _place_stopped(out, row, old, library, measured_now,
+                               reproducing_now)
         elif now_real and not was_real:
             out.new.append(row)
         elif now_real and was_real:

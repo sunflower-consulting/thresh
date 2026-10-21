@@ -484,3 +484,85 @@ def test_a_variant_on_the_attempt_list_that_produced_no_finding_is_not_a_retest(
                 _finding("INJ-D-0003", "rejected", 0.0)],
                after_cases=["INJ-D-0001", "INJ-D-0002", "INJ-D-0003"])
     assert [r.case for r in d2.closed] == ["INJ-D-0001"]
+
+
+# --- a run that measured nothing closes nothing ----------------------------------
+
+#: The finding `validate_chat_case`'s UNTESTED branch writes: state UNDER_TEST,
+#: no trials, truncated. It exists so an absence of measurement is RECORDED
+#: rather than dropped -- and `diff` read its existence as proof of a retest.
+def _untested(case="INJ-D-0001"):
+    return _finding(case=case, state="under_test",
+                    trials={"trials": 0, "hits": 0, "asr": 0.0, "truncated": True})
+
+
+def test_a_retest_that_measured_nothing_does_not_close_a_finding(tmp_path):
+    """`diff` counted a case as re-tested on the mere PRESENCE of a finding.
+
+    The row then reached a closure bucket as though measured, and it also stood
+    as a measured, clean VARIANT under every sibling case, closing those too.
+    `Diff.incomplete` is `bool(not_retested)` and `thresh diff` returns 1 on it to
+    gate a release -- so a retest that proved nothing exited 0 and reported the
+    finding closed.
+    """
+    # The siblings ARE retested clean, so everything except the measurement of
+    # INJ-D-0001 itself is in place for closure. Only its UNTESTED finding stands
+    # between this and `closed`, which is exactly what the test is about.
+    d = _diff(tmp_path, [_finding("INJ-D-0001", "validated", 0.9)],
+              [_untested("INJ-D-0001"),
+               _finding("INJ-D-0002", "rejected", 0.0),
+               _finding("INJ-D-0003", "rejected", 0.0)])
+
+    assert [r.case for r in d.closed] == [], (
+        f"a finding was closed by a run that measured nothing: "
+        f"{[r.case for r in d.closed]}")
+    assert [r.case for r in d.not_retested] == ["INJ-D-0001"], (
+        f"it must land where `incomplete` can see it, got "
+        f"{[r.case for r in d.not_retested]}")
+    assert d.incomplete is True, "the release gate must not pass on this"
+
+
+def test_a_real_retest_still_closes_a_finding(tmp_path):
+    """The control. Narrowing what counts as a measurement must not stop a genuine
+    retest from closing anything -- that would turn every release gate red, and
+    the fix would be worse than the bug it replaced."""
+    d = _diff(tmp_path, [_finding("INJ-D-0001", "validated", 0.9)],
+              [_finding("INJ-D-0001", "rejected", 0.0),
+               _finding("INJ-D-0002", "rejected", 0.0),
+               _finding("INJ-D-0003", "rejected", 0.0)])
+
+    assert [r.case for r in d.closed] == ["INJ-D-0001"], (
+        f"a real retest did not close the finding: closed={[r.case for r in d.closed]}, "
+        f"not_retested={[r.case for r in d.not_retested]}")
+    assert d.incomplete is False
+
+
+def test_a_zero_trial_row_says_it_was_not_measured(tmp_path):
+    """`Row.rate`'s no-trials fallback reports the STATE instead of a rate --
+    "stood up" or "did not reproduce". For a run that measured nothing that is a
+    claim about a measurement nobody has, printed in the column a reader scans
+    for the number."""
+    d = _diff(tmp_path, [_finding("INJ-D-0001", "validated", 0.9)],
+              [_untested("INJ-D-0001")])
+    rows = d.not_retested + d.closed + d.unverified
+    assert rows, "expected the row somewhere"
+    assert rows[0].rate("after") == "not measured", (
+        f'the after column reads {rows[0].rate("after")!r} for a run that measured '
+        f"nothing")
+
+
+def test_a_later_bundle_that_declares_it_attempted_nothing_is_incomplete(tmp_path):
+    """`after_attempted and not (cases & after_attempted)` could not fire for an
+    EMPTY attempt list, so a retest declaring `cases: []` reported
+    `incomplete=False` and `thresh diff` exited 0 on a retest that proved nothing.
+
+    Deliberately narrower than dropping the guard: a bundle written before `cases`
+    existed still falls through, so no old retest starts crying wolf.
+    """
+    d = _diff(tmp_path, [_finding("INJ-D-0001", "validated", 0.9)], [],
+              before_cases=["INJ-D-0001"], after_cases=[])
+
+    assert [r.case for r in d.not_retested] == ["INJ-D-0001"], (
+        f"a run declaring `cases: []` attempted nothing: "
+        f"{[r.case for r in d.not_retested]}")
+    assert d.incomplete is True
