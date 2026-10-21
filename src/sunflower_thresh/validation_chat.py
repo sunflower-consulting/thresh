@@ -214,7 +214,18 @@ class _ChatRunner:
         #: the run uses what preflight verified rather than what someone retyped.
         self.transport = dict(transport or {})
         self.evidence_refs: list[str] = []
+        #: The refusal of a call that was PART OF THE MEASUREMENT. Read as "the gate
+        #: cut this run short", so only a call whose refusal can shorten it may
+        #: write here -- `chat_open` and `chat_say`, the two whose failure makes
+        #: `trial` return None.
         self.deny_code = ""
+        #: A refused TEARDOWN, kept apart and read by nothing that decides
+        #: truncation. `chat_reset` is passive and costs no message, and it runs
+        #: after the trial has collected everything it will report, so refusing it
+        #: cannot make the measurement shorter. Recorded rather than dropped,
+        #: because an engagement where teardown is being refused is worth knowing
+        #: about -- it just is not a truncated measurement.
+        self.teardown_denied = ""
         #: The victim's client, or None. Set by the caller when the run has a
         #: collector, because rendering a reply is what makes the callback rung
         #: able to fire at all.
@@ -321,8 +332,33 @@ class _ChatRunner:
         return seen
 
     def _close(self, cid: str) -> None:
-        if cid:
-            self._call("chat_reset", {"conversation_id": cid}, ActionClass.PASSIVE)
+        """Abandon the conversation. A refusal here is NOT a short measurement.
+
+        `_call` writes `deny_code` on any refusal, and `validate_chat_case` reads
+        that one field as "the gate cut this run short". This call cannot cut
+        anything short: it is PASSIVE, costs no message, and runs after the trial
+        has gathered every observation it will report. So its refusal is recorded
+        on `teardown_denied` and `deny_code` is put back as it was.
+
+        What that was worth, measured: a single refused `chat_reset` on a complete
+        case -- 5/5 attack, 0/5 matched control, p=0.004, VALIDATED -- set
+        `gate_denied` with `truncated` absent. The sweep then read that as a
+        transient denial, re-ran the whole case six times for 70 target messages
+        instead of 10, and its `gate_denied` branch is the one branch that does
+        not bank the finding. A real VALIDATED finding was deleted from the report
+        and replaced by a denial tally.
+
+        Nothing is lost by restoring it. A denial that persists -- a thrown kill
+        switch, a spent budget -- refuses the NEXT trial's `chat_open` or
+        `chat_say`, and that write is the one that does mean the run is short.
+        """
+        if not cid:
+            return
+        before = self.deny_code
+        self._call("chat_reset", {"conversation_id": cid}, ActionClass.PASSIVE)
+        if self.deny_code != before:
+            self.teardown_denied = self.deny_code
+            self.deny_code = before
 
 
 def _score(ladder, observations: list[ChatObservation],
@@ -612,6 +648,12 @@ def validate_chat_case(
     # `requested_trials` is written unconditionally so `trials` can never be
     # mistaken for the budget: "ten of ten" and "five, because we were stopped"
     # are different claims and only one of them is a measurement.
+    # Recorded for the ATTACK arm here, and recorded AGAIN after the control arm
+    # below, because this check used to be the only one. A denial that landed
+    # during the control arm therefore left no trace at all -- the asymmetric
+    # other half of the same confusion the teardown split fixes, and in the worse
+    # direction: a control arm cut short with `gate_denied` absent reads as a
+    # control that genuinely came back clean.
     if runner.deny_code:
         report["gate_denied"] = True
         report["deny_code"] = runner.deny_code
@@ -735,6 +777,16 @@ def validate_chat_case(
                 _tally(seen, scored_by=baseline_ladder)
             if arm.note:
                 report["baseline_note"] = arm.note
+
+    # The second half of the record. `deny_code` may have been written during the
+    # control arm, after the check above had already run.
+    if runner.deny_code:
+        report["gate_denied"] = True
+        report["deny_code"] = runner.deny_code
+    #: A refused teardown, kept where a reader can see it and no consumer reads it
+    #: as truncation. An engagement refusing `chat_reset` is worth knowing about.
+    if runner.teardown_denied:
+        report["teardown_denied"] = runner.teardown_denied
 
     finding.evidence_refs.extend(runner.evidence_refs)
     asr = hits / done if done else 0.0
