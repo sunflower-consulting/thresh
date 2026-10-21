@@ -488,7 +488,27 @@ def test_a_technique_that_ran_clean_is_told_from_one_that_never_ran(tmp_path):
         by_status.setdefault(row["status"], []).append(row["obligation"])
     assert by_status.get("probed-clean"), "something ran"
     assert by_status.get("not-probed"), "and something did not"
-    assert not set(by_status["probed-clean"]) & set(by_status["not-probed"])
+    # What `probed-clean` MEANS: a technique bearing on this duty actually ran.
+    # The line here used to be
+    # `assert not set(by_status["probed-clean"]) & set(by_status["not-probed"])`,
+    # which is a tautology of how `by_status` is built two lines up: every id is
+    # appended to exactly one bucket keyed by its own status, so two buckets can
+    # only intersect if a row were duplicated. It could not see the pair this test
+    # is named for. Measured: inverting `coverage`'s own
+    # `elif any(t in attempted for t in bearing)` -- which reports probed duties as
+    # unprobed and an unprobed duty as clean -- left this test passing.
+    for oid in by_status["probed-clean"]:
+        row = next(r for r in doc["obligations"] if r["obligation"] == oid)
+        assert row["techniques_run"], (
+            f"{oid} is probed-clean and names no technique that ran, which is "
+            f"what not-probed means")
+
+    # The duplicate-row check the old line actually performed, stated as itself.
+    ids = [r["obligation"] for r in doc["obligations"]]
+    assert len(ids) == len(set(ids)), (
+        f"an obligation appears twice: "
+        f"{sorted(i for i in set(ids) if ids.count(i) > 1)}")
+
     for oid in by_status["not-probed"]:
         row = next(r for r in doc["obligations"] if r["obligation"] == oid)
         assert row.get("reason"), "and the one that did not run says why"
