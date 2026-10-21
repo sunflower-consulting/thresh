@@ -38,9 +38,11 @@ import uuid
 from sunflower_thresh.oracles import (
     CallbackOracle,
     ChatObservation,
+    OracleLadder,
     OracleResult,
     Scoring,
     build_ladder,
+    replay_safe,
 )
 from sunflower_thresh.policy.decision import ToolRequest, target_ref
 from sunflower_thresh.schemas.finding import EvidenceStrength, Finding, FindingState, TrialStats
@@ -499,6 +501,12 @@ def validate_chat_case(
     # Measured against the lab: eight cases scored 0.00 while the board showed the
     # same attacks landing.
     seeds = {**(engagement_seeds or {}), **dict(case.seeds)}
+    #: Read BEFORE the mint below, because afterwards the two are indistinguishable.
+    #: It decides whether the shared baseline arm may be scored on the canary rung:
+    #: an engagement token is the same string for every case, so a replayed reply
+    #: either contains it or does not; a minted one differs per case, so a reply
+    #: recorded for some other case could never have carried it.
+    canary_from_engagement = bool(seeds.get("canary"))
     if not seeds.get("canary"):
         if "engagement_canary" in case.needs:
             report["skipped"] = (
@@ -644,9 +652,10 @@ def validate_chat_case(
     controls_done = 0
     control_kind = "none"
 
-    def _tally(seen) -> None:
+    def _tally(seen, scored_by=None) -> None:
         nonlocal control_hits, controls_done
-        res, turn = _score(ladder, seen, case.evaluate)
+        res, turn = _score(scored_by if scored_by is not None else ladder,
+                           seen, case.evaluate)
         control_hits += bool(res.hit)
         controls_done += 1
         report["controls"].append({"hit": bool(res.hit), "matched_turn": turn,
@@ -673,27 +682,56 @@ def validate_chat_case(
                 break
             _tally(seen)
     elif arm and m > 0:
-        # Already sent, or sent now and kept for every case after this one.
-        control_kind = "baseline"
-        # Reminted here too. The matched arm alone did not cover this, and this
-        # is the arm that actually runs for the cases without a matched control:
-        # of the corpus's 244 cases, 190 carry one and 54 do not, and for those
-        # 54 THIS is the control.
+        # The arm that runs for every case with no matched control: of the corpus's
+        # 244 cases, 190 carry one and 54 do not, and for those 54 THIS is the
+        # control.
         #
-        # The baseline exchanges are sent once and re-scored for every case, so
-        # without a fresh token they are scored through whatever token the
-        # attack arm left behind -- the same inherited hit that made the matched
-        # arm fire m/m before it was reminted, now on the path taken instead.
+        # ITS EXCHANGES ARE SENT ONCE AND RE-SCORED FOR EVERY CASE, and that is the
+        # whole difficulty. A replayed reply can only be asked a question that means
+        # the same thing at replay time as it did when the reply was recorded, and
+        # two rungs fail that test -- the callback token is minted per trial and the
+        # canary per case. `replay_safe` is the rule and `oracles.py` carries the
+        # reasoning.
         #
-        # A token nothing could have fetched reports no hit, which is the honest
-        # reading of what a baseline establishes: that the oracle does not fire
-        # on ordinary traffic. It does not isolate the attack, and `control_kind`
-        # is what stops a report claiming otherwise.
-        for i, seen in enumerate(arm.runs(runner, seeds)[:m]):
-            _remint_callback(collector, seeds, ladder, f"{case.id}-b{i}")
-            _tally(seen)
-        if arm.note:
-            report["baseline_note"] = arm.note
+        # This went wrong in BOTH directions before the rule existed. Scoring the
+        # replay through the attack arm's leftover token made the control fire m/m
+        # and REJECTED the finding the attack arm had just established. Reminting
+        # per control trial fixed that symptom and replaced it with the opposite and
+        # more dangerous error: a token minted after the replies were recorded can
+        # never have been fetched, so the control reported a clean 0 every time and
+        # fed the Fisher test the significance that promotes a finding to VALIDATED.
+        # Measured both ways against a target that phoned home on every reply,
+        # baseline questions included: control 3/3 and rejected, then control 0/4
+        # with p=0.014 and validated. Neither number was a measurement.
+        #
+        # So the rungs that cannot be replayed are DROPPED rather than scored, and
+        # named in the report. If that leaves nothing, this case has no control at
+        # all -- `control_kind` stays "none", no p-value is computed, and the
+        # finding is neither validated nor falsified, which is the module's existing
+        # answer to a missing control and the correct one here.
+        keep = [r for r in ladder.rungs
+                if replay_safe(r, canary_from_engagement=canary_from_engagement)]
+        dropped = sorted({r.strength.name for r in ladder.rungs
+                          if not replay_safe(
+                              r, canary_from_engagement=canary_from_engagement)})
+        if dropped:
+            report["baseline_unscorable_rungs"] = dropped
+        if not keep:
+            report["control_note"] = (
+                "no control arm ran: the shared baseline is replayed from one set of "
+                f"recorded replies, and this case is scored only on {', '.join(dropped)}, "
+                "whose matcher is minted per case or per trial. Scoring a replay "
+                "against it would report a clean control that could not have been "
+                "anything else. A matched control arm is the only control for this "
+                "case.")
+        else:
+            control_kind = "baseline"
+            baseline_ladder = OracleLadder(keep, suppressors=ladder.suppressors,
+                                           require_all=ladder.require_all)
+            for seen in arm.runs(runner, seeds)[:m]:
+                _tally(seen, scored_by=baseline_ladder)
+            if arm.note:
+                report["baseline_note"] = arm.note
 
     finding.evidence_refs.extend(runner.evidence_refs)
     asr = hits / done if done else 0.0

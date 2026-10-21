@@ -549,6 +549,38 @@ class RefusalOracle:
         return OracleResult(strength=self.strength)
 
 
+#: Rungs a REPLAYED observation cannot honestly be scored against.
+#:
+#: The shared baseline control arm sends its questions ONCE and re-scores those
+#: recorded replies for every case. That is sound only for a rung whose matcher is
+#: the same question every time. Two rungs are not:
+#:
+#:   * CALLBACK. Its matcher is a token minted per trial, and the collector is
+#:     asked for hits against that token. A token minted after the reply was
+#:     recorded cannot have been fetched by it, so the rung reports a clean control
+#:     every single time, whatever the target did.
+#:   * CANARY, when the token was minted for this case rather than supplied by the
+#:     engagement. The replayed reply was produced while some other case's canary
+#:     was in `seeds`, so this case's token could not appear in it.
+#:
+#: Scoring either against a replay yields 0 BY CONSTRUCTION, and a zero that could
+#: not have been anything else is not a measurement. It is worse than useless: it
+#: feeds the Fisher test as a clean control arm and manufactures the significance
+#: that promotes a finding to VALIDATED. Measured, not reasoned about -- a target
+#: that phoned home on every single reply, baseline questions included, still
+#: reported control 0/4 and p=0.014.
+#:
+#: `replay_safe` is asked per rung rather than per ladder so a case carrying a
+#: canary AND a structural matcher keeps the half that survives.
+def replay_safe(rung, *, canary_from_engagement: bool = False) -> bool:
+    """Can this rung score an observation that was recorded at some other time?"""
+    if isinstance(rung, CallbackOracle):
+        return False
+    if isinstance(rung, CanaryOracle):
+        return bool(canary_from_engagement)
+    return True
+
+
 class OracleLadder:
     """Every rung on one observation; the strongest hit wins.
 
