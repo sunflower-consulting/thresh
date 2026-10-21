@@ -172,8 +172,9 @@ class Ops:
 
     Narrowed, not sealed: `ops.run.__self__` is the Lab, so a determined hook can
     still walk to the Scoreboard. The honest version of this boundary is a separate
-    process, which this lab will never have; the grep tests in
-    `tests/test_lab_defenses.py` are the other half of the guarantee.
+    process, which this lab will never have, and the other half of the guarantee
+    stayed in the engine: `tests/test_lab_defenses.py` is not in this repository,
+    so the narrowing here is a convention rather than something enforced.
     """
 
     compose: Callable
@@ -293,9 +294,13 @@ def scrub(reply: str) -> str:
 #: The security of action-selector rests ENTIRELY on these five being safe to
 #: execute with attacker-chosen parameters, and `track` is NOT: its order id is a
 #: placeholder the caller fills, which is the paper's own templated-SQL caveat, and
-#: it is exactly why `toolIdor` stays reachable under action-selector. The patterns
-#: are mirrored into the yaml and the cross-check compares the source strings --
-#: which pins that these five are what the code uses, not that they are right.
+#: it is exactly why `toolIdor` stays reachable under action-selector.
+#:
+#: NOTHING IN THIS REPOSITORY PINS THESE FIVE. The engine this lab came from
+#: cross-checks them against its own yaml; here they are the only statement of
+#: what action-selector admits, so editing a pattern changes the defence and no
+#: test will say so. The claim that used to sit here -- that the patterns are
+#: mirrored into a yaml and compared -- described that other side.
 ALLOWLIST = (
     ("hours",
      re.compile(r"(?i)opening hours|what hours|when (?:are|do) you open|open today"),
@@ -555,7 +560,12 @@ _DEFAULTS = (("on_input", _keep_message), ("plan", _no_plan),
 
 @dataclass(frozen=True)
 class Config:
-    """One row of the engine's `config/labs/defenses.yaml`, with its hooks attached."""
+    """One defence configuration, with its hooks attached.
+
+    The engine loads these rows from `config/labs/defenses.yaml`. There is no such
+    file here and deliberately so: `CONFIGS` below is the whole set, in code, which
+    is why this lab runs from a `pip install` with nothing to configure.
+    """
 
     name: str
     label: str = ""

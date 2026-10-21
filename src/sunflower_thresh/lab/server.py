@@ -330,8 +330,10 @@ class Lab:
         """One turn, driven through the four seams a defence may hold.
 
         With no hooks installed this is byte-for-byte what it was before the
-        defence layer existed, and `tests/test_lab_characterisation.py` is what
-        says so rather than this sentence.
+        defence layer existed. That used to be attributed to
+        `tests/test_lab_characterisation.py`, which stayed in the engine this lab
+        was extracted from -- so this sentence IS the claim, and `tests/test_lab.py`
+        is what exercises the undefended path here.
         """
         t = Turn(ops=self.ops, conversation_id=conversation_id, message=message)
         self._turn = t
@@ -550,7 +552,8 @@ def _ollama_reply(lab: Lab, messages: list[dict]) -> tuple[str, list[dict]]:
     # run_sql("SELECT * FROM orders WHERE order_id = 1002") -- bob's order from alice's
     # session -- which the lab recorded as nothing, so the case scored as RESISTED. A
     # false negative that reads as a clean result is the worst outcome this lab can
-    # produce. See docs/test-strategy.md section 4.
+    # produce, which is why the native-call path is tried first and the text
+    # fallback second rather than the other way round.
     calls = _native_tool_calls(lab, message)
     return text, calls or _tool_calls_from(lab, text)
 
@@ -949,8 +952,9 @@ def _stub_dispatch(lab: Lab, message: str, *, history: list[dict], turn: int,
 
     # The thing a competent support bot actually does. LAST on purpose: every
     # branch above is a planted flaw, so this one can only ever turn a generic
-    # non-answer into a real one. It cannot shadow an attack path, and
-    # tests/test_lab_characterisation.py proves it did not.
+    # non-answer into a real one: ordering is what makes that true, and nothing
+    # in this repository pins it. The characterisation test that used to be cited
+    # here stayed in the engine.
     answered, answer_calls = _support_answer(lab, message, low, parts, tn)
     if answered:
         return answered, answer_calls

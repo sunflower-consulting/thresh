@@ -174,9 +174,17 @@ class TrialStats(BaseModel):
     #:               simply unprotected" -- the report has to say which it is.
     #: "none"     -- nothing was falsified.
     #:
-    #: The distinction exists because the corpus carries no matched controls (see
-    #: docs/corpus-feedback.md), and without SOME control arm no corpus case could ever
-    #: reach VALIDATED -- which would make every number in a report a 0.
+    #: The distinction exists because not every case CAN have a matched control.
+    #: Measured against the corpus at seed-vault 379a45b: 190 of 244 cases carry
+    #: one, 50 are `seeded` and 4 are `inseparable`. Without some control arm those
+    #: 54 could never reach VALIDATED, so the baseline exists for them -- and
+    #: `control_kind` is what stops a report presenting the weaker claim as the
+    #: stronger one.
+    #:
+    #: The sentence here used to say the corpus carries NO matched controls and
+    #: cited `docs/corpus-feedback.md`, which is not in this repository. Both halves
+    #: were wrong, and the false half was load-bearing: it is the reason the
+    #: baseline arm exists at all.
     control_kind: str = "none"
 
 

@@ -239,3 +239,77 @@ def test_the_palette_holds_only_colours_the_module_can_emit():
     assert requested - declared == set(), (
         f"a helper requests {sorted(requested - declared)}, which the palette does "
         f"not define, so it would raise KeyError at the first call")
+
+
+#: Paths this package's comments mention ON PURPOSE while saying they are not
+#: here. They belong to the private engine `sunflower_thresh` was extracted from,
+#: and the sentences citing them exist to tell a reader that the guarantee lives
+#: on the other side. Adding to this set is a deliberate act; the citing line must
+#: say the file is absent, or a reader will go looking for it.
+CITED_BUT_DELIBERATELY_ABSENT = frozenset({
+    "config/labs/defenses.yaml",
+    "docs/corpus-feedback.md",
+    "config/projects/chatbot-demo.example.yaml",
+    "tests/test_lab_defenses.py",
+    "tests/test_lab_characterisation.py",
+})
+
+
+def test_every_file_a_comment_points_at_is_either_here_or_declared_absent():
+    """A comment that vouches for a guarantee by citing a test is worth exactly as
+    much as the test.
+
+    This class of defect recurred in five files in one review pass, and the
+    expensive ones were not the dangling links -- they were the claims:
+
+      * `sweep.py` said "tests/test_message_budget.py asserts the contents of this
+        tuple". No such file, so `TRANSIENT_DENIALS` -- which decides whether a
+        refused case is re-sent six times -- was unpinned while a comment said it
+        was not. That test now exists, under the name it actually has.
+      * `lab/server.py` said `tests/test_lab_characterisation.py` "proves it did
+        not" about branch ordering. Nothing proved it.
+      * `schemas/finding.py` cited `docs/corpus-feedback.md` for "the corpus
+        carries no matched controls". The doc is absent and the claim was false:
+        190 of 244 cases carry one. That false sentence was the stated reason the
+        baseline arm exists.
+
+    So the rule is not "no dead links". It is that a reader must be able to tell a
+    citation they can follow from one describing another repository, and the only
+    way to keep that true is to check it.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    src = root / "src" / "sunflower_thresh"
+    pattern = re.compile(
+        r"\b((?:tests|config|docs|examples|labs|data|schema)"
+        r"/[A-Za-z0-9_./-]+\.(?:py|ya?ml|md|json|typ))")
+
+    dangling: dict[str, list[str]] = {}
+    for path in sorted(src.rglob("*.py")):
+        for lineno, line in enumerate(path.read_text().split("\n"), 1):
+            for match in pattern.finditer(line):
+                cited = match.group(1)
+                if (root / cited).exists() or cited in CITED_BUT_DELIBERATELY_ABSENT:
+                    continue
+                dangling.setdefault(cited, []).append(
+                    f"{path.relative_to(root)}:{lineno}")
+
+    assert not dangling, (
+        "these comments point at files that are not in this repository. Either the "
+        "path is wrong, or the file lives in the private engine -- in which case say "
+        "so on the citing line and add it to CITED_BUT_DELIBERATELY_ABSENT, so the "
+        f"next reader is not sent looking: {dangling}")
+
+    # The allowlist must not outlive its entries: a path that comes BACK should be
+    # checked normally again, and one nothing cites any more is just stale.
+    cited_anywhere = {m.group(1) for path in src.rglob("*.py")
+                      for m in pattern.finditer(path.read_text())}
+    for absent in sorted(CITED_BUT_DELIBERATELY_ABSENT):
+        assert absent in cited_anywhere, (
+            f"{absent} is allowlisted as deliberately absent and nothing cites it; "
+            f"drop it from CITED_BUT_DELIBERATELY_ABSENT")
+        assert not (root / absent).exists(), (
+            f"{absent} now EXISTS, so it should be checked like any other citation; "
+            f"drop it from CITED_BUT_DELIBERATELY_ABSENT")

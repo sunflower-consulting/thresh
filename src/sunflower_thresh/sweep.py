@@ -277,7 +277,9 @@ def _validate_one(ctx, tid, *, target_ip, port, run_id,
 #: `message_budget_exhausted` here would make the loop below retry it
 #: MAX_RATE_RETRIES times per case, sleeping between each, so a library of forty
 #: cases would spend minutes re-asking a question whose answer cannot change.
-#: tests/test_message_budget.py asserts the contents of this tuple.
+#: Pinned by `tests/test_sweep_retries.py`, which is the test this comment used to
+#: cite under a name that does not exist in this repository -- so the tuple that
+#: decides whether a denial is retried was unpinned while a comment said otherwise.
 TRANSIENT_DENIALS = ("rate_limited",)
 MAX_RATE_RETRIES = 6
 
