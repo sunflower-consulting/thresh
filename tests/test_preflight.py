@@ -32,6 +32,7 @@ from sunflower_thresh.preflight import (
     CHAT_TOOL,
     PREDICTS,
     UNPREDICTABLE,
+    CheckResult,
     CollectorReach,
     EngagementPreflight,
     ScopeError,
@@ -669,12 +670,35 @@ def test_a_missing_scope_document_is_refused_by_name(tmp_path):
 
 def test_only_the_rows_that_need_acting_on_carry_a_hint():
     """A hint beside every passing check trains an operator to skip the whole block,
-    which is how the one that mattered gets missed."""
-    results = _pf(sender=mock_sender("stateless")).run()
-    text = render(results)
-    for row in results:
-        if row.status is Status.PASS and row.hint:
-            assert f"{row.name}: {row.hint}" not in text
+    which is how the one that mattered gets missed.
+
+    Built by hand rather than run through the checks. No check in the module
+    currently pairs a hint with PASS, so the loop this replaced -- `for row in
+    results: if row.status is PASS and row.hint:` -- never entered its body and
+    asserted nothing whatever. Measured: changing `render`'s `for r in bad + warn`
+    to `for r in results`, which prints a hint beside every passing row, left this
+    test and the whole suite green.
+
+    Three rows, one per status, each with a hint, so the assertion is a pure
+    function of `render` and cannot be emptied by what the checks happen to
+    produce today.
+    """
+    text = render([
+        CheckResult(name="inventory", status=Status.PASS, detail="d",
+                    hint="passing hint"),
+        CheckResult(name="scope", status=Status.FAIL, detail="d",
+                    hint="failing hint"),
+        CheckResult(name="coverage", status=Status.WARN, detail="d",
+                    hint="warning hint"),
+    ])
+
+    assert "passing hint" not in text, (
+        "a PASS row's hint reached the readout; the hint block is what an operator "
+        "is meant to act on, and padding it with passing rows is how they stop "
+        "reading it")
+    # And the two that must be there, or the test would pass by rendering nothing.
+    assert "failing hint" in text
+    assert "warning hint" in text
 
 
 def test_the_verdict_says_do_not_start_when_anything_failed():

@@ -11,19 +11,31 @@ from __future__ import annotations
 import argparse
 import pathlib
 
+import pytest
+
 from sunflower_thresh.cli import _build_parser, main
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 
 
-def _help(argv: list[str]) -> str:
+def _help(argv: list[str]) -> None:
     """argparse's --help action exits rather than returning, so every caller here
-    has to unwrap that. A non-zero code means the parser rejected the arguments."""
-    try:
+    has to unwrap that. A non-zero code means the parser rejected the arguments.
+
+    REQUIRED, not merely handled. The assertion used to sit inside
+    `except SystemExit`, so a `--help` that RETURNED skipped it entirely and
+    `_help` reported success -- and a `--help` that returns is a `--help` that ran
+    the command instead of describing it. Measured: registering `doctor` with
+    `add_help=False` plus its own `--help` flag made `main(["doctor", "--help"])`
+    print the whole doctor readout and return 0, and the suite stayed at 560
+    passed.
+
+    The `-> str` and `return ""` went with it: no caller ever read the value, and
+    they are what let the silent path look like a result.
+    """
+    with pytest.raises(SystemExit) as exc:
         main(argv)
-    except SystemExit as exc:
-        assert exc.code in (0, None), f"{argv} exited {exc.code}"
-    return ""
+    assert exc.value.code in (0, None), f"{argv} exited {exc.value.code}"
 
 
 def test_every_advertised_command_runs(capsys):
