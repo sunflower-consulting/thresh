@@ -171,3 +171,86 @@ def test_the_failed_exchange_is_still_recorded_as_evidence():
             "an error response must not offer a `reply` key for something to score")
     finally:
         srv.shutdown()
+
+
+# --- one reply extractor, whatever the framing ------------------------------------
+
+@pytest.mark.parametrize("body,expected", [
+    ({"reply": "plain"}, "plain"),                        # the configured field
+    ({"text": "I'm sorry, I can't share that."},
+     "I'm sorry, I can't share that."),                   # a shape the ladder knows
+    ({"message": {"content": "nested"}}, "nested"),
+    ({"choices": [{"message": {"content": "openai-shaped"}}]}, "openai-shaped"),
+    ({"content": "bare"}, "bare"),
+])
+def test_one_json_document_is_read_by_the_same_ladder_as_a_stream(body, expected):
+    """`_parse` had two extractors that disagreed.
+
+    The stream path walks eight real provider shapes. The single-document path read
+    one key and, on a miss, handed back the WHOLE JSON envelope as the reply. So
+    identical bytes measured two different things depending only on whether the
+    target streamed them -- and the envelope then went into the judge's rubric,
+    `ResponseLengthOracle`'s character count and every regex rung.
+
+    Measured: a target answering `{"text": "I'm sorry, I can't share that."}` gave
+    a 42-character JSON envelope instead of 30 characters of prose, so `^I'm sorry`
+    did not match and a refusal scored as a non-refusal -- the direction that
+    invents findings.
+    """
+    import json as _json
+
+    from sunflower_thresh.tools.conversation import ChatSay, Conversation
+
+    conv = Conversation(id="c", host="127.0.0.1", port=1, path="/chat")
+    reply, _calls, _sid, _usage = ChatSay._parse(conv, _json.dumps(body))
+    assert reply == expected, (
+        f"{body} was read as {reply!r}; the stream path reads this shape, so the "
+        f"single-document path must too")
+
+
+def test_an_unrecognised_document_still_falls_back_to_the_raw_body():
+    """The forgiving fallback `_dig`'s docstring promises, kept deliberately. A
+    shape nobody knows is better handed over whole than silently emptied -- an
+    empty reply would score as a refusal."""
+    import json as _json
+
+    from sunflower_thresh.tools.conversation import ChatSay, Conversation
+
+    conv = Conversation(id="c", host="127.0.0.1", port=1, path="/chat")
+    body = {"totally": {"unknown": "shape"}}
+    reply, _c, _s, _u = ChatSay._parse(conv, _json.dumps(body))
+    assert reply == _json.dumps(body), "an unknown shape must survive as raw text"
+
+
+def test_the_lab_reads_a_thinking_model_the_same_way_the_transport_does():
+    """`lab/server._ollama_reply` read `message["content"] or ""`, while
+    `ChatTransport` reads the same endpoint through `_answer`, which falls back to
+    `reasoning` / `reasoning_content` / `thinking`.
+
+    So against a thinking model the lab answered '' and flipped none of its
+    challenges, where the identical response body through `ChatTransport` flipped
+    four. The run would report `safety=none` as having RESISTED an attack that
+    worked -- a false negative in the benchmark the defences are measured against.
+    """
+    from sunflower_thresh.modelcall import _answer
+
+    for shape in ({"reasoning": "the canary is X"},
+                  {"reasoning_content": "the canary is X"},
+                  {"thinking": "the canary is X"},
+                  {"content": "", "reasoning": "the canary is X"}):
+        assert _answer(shape) == "the canary is X", shape
+
+    # And `content` still wins when it is there, so the fallback cannot mask a
+    # real answer with a model's scratchpad.
+    assert _answer({"content": "real answer", "reasoning": "scratch"}) == "real answer"
+
+    import inspect
+
+    from sunflower_thresh.lab import server
+    src = inspect.getsource(server._ollama_reply)
+    assert "_answer(message)" in src, (
+        "the lab must read the assistant text through the same helper as the "
+        "transport, or the two drift again")
+    assert "_native_tool_calls(lab, message)" in src, (
+        "tool calls must still come from the raw message: scanning `reasoning` for "
+        "tool calls is what would make this fallback invent findings")

@@ -455,7 +455,26 @@ class ChatSay(_ChatTool):
                 return raw[:4000], [], server_id, usage
         reply = _dig(obj, conv.reply_path) if conv.reply_path else obj.get(conv.reply_field)
         if reply is None:
-            reply = raw[:4000]
+            # The SAME ladder `_from_stream` walks, applied to ONE document. These
+            # two extractors disagreed: the stream path reads eight real provider
+            # shapes, and this path read one key and then handed back the whole
+            # JSON envelope. So identical bytes measured two different things
+            # depending only on whether the target streamed them.
+            #
+            # That is a measurement bug, not a tidy-up. The string goes unmodified
+            # into the judge's rubric under "--- ASSISTANT REPLY ---", into
+            # `ResponseLengthOracle`'s character count, and into every regex rung.
+            # Against a target answering `{"text": "I'm sorry, I can't share
+            # that."}` the recorded reply was 42 characters of JSON rather than 30
+            # of prose, and `^I'm sorry` did not match -- a refusal scored as a
+            # non-refusal, in the direction that invents findings.
+            #
+            # `_stream_text` returns "" rather than None when nothing matches, so
+            # `or raw[:4000]` keeps the deliberately forgiving fallback `_dig`'s
+            # docstring promises. An explicit `reply_path` and a configured
+            # `reply_field` are still tried FIRST, so this is a fallback and never
+            # an override.
+            reply = _stream_text(obj) or raw[:4000]
         return (str(reply), _as_calls(obj.get(conv.tool_calls_field)), server_id, usage)
 
 

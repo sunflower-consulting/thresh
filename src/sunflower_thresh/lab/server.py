@@ -67,6 +67,7 @@ from sunflower_thresh.lab.scoreboard import (
     OTHER_USER_SECRET,
     Scoreboard,
 )
+from sunflower_thresh.modelcall import _answer
 
 OLLAMA = "http://127.0.0.1:11434/v1/chat/completions"
 DEFAULT_MODEL = "qwen2.5:14b-instruct"
@@ -540,7 +541,19 @@ def _ollama_reply(lab: Lab, messages: list[dict]) -> tuple[str, list[dict]]:
         with urllib.request.urlopen(req, timeout=120) as r:
             data = json.loads(r.read())
         message = data["choices"][0]["message"]
-        text = message.get("content") or ""
+        # `_answer`, not `message["content"]`. `ChatTransport` reads this same
+        # OpenAI-shaped endpoint through it and falls back to
+        # `reasoning` / `reasoning_content` / `thinking` when `content` is empty,
+        # which is what a thinking model sends. The lab had no fallback, so against
+        # one such model it answered '' and flipped 0 of its challenges where the
+        # same response body through `ChatTransport` flipped 4 -- the run would
+        # report `safety=none` as having RESISTED an attack that worked.
+        #
+        # `_native_tool_calls(lab, message)` below still gets the raw dict, so its
+        # deliberate refusal to scan `reasoning` for tool calls is unchanged. That
+        # is the guard stopping this fallback from inventing findings, and it must
+        # not be relaxed at the same time.
+        text = _answer(message)
     except Exception as exc:  # noqa: BLE001 - a lab must say why, not 500 blankly
         return f"[lab: model backend unavailable: {exc}]", []
     # Structured calls FIRST, and they win: when a reasoning model decides to call a
