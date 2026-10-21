@@ -717,7 +717,10 @@ def validate_chat_case(
         if dropped:
             report["baseline_unscorable_rungs"] = dropped
         if not keep:
-            report["control_note"] = (
+            # NOT `control_note`: that name already carries the corpus's reason why
+            # no matched control is possible for a case, which is a different
+            # statement from this one and reaches the worksheet separately.
+            report["control_absent_because"] = (
                 "no control arm ran: the shared baseline is replayed from one set of "
                 f"recorded replies, and this case is scored only on {', '.join(dropped)}, "
                 "whose matcher is minted per case or per trial. Scoring a replay "
@@ -772,7 +775,8 @@ def validate_chat_case(
             f"{finding.validation_result} ({scoring.note()}; "
             f"this run measured less than the case asks for)")
     finding.reproduction_steps = _reproduction_steps(
-        case, stats, best, host=target_ip, port=port, seeds=seeds, arm=arm)
+        case, stats, best, host=target_ip, port=port, seeds=seeds, arm=arm,
+        baseline_unscorable=tuple(report.get("baseline_unscorable_rungs") or ()))
 
     report["final_state"] = finding.state.value
     return finding, report
@@ -791,7 +795,8 @@ def _judge_detail(res: OracleResult) -> dict:
 
 
 def _reproduction_steps(case: ChatCase, stats: TrialStats, best: OracleResult, *,
-                        host: str, port: int, seeds: dict, arm) -> list[str]:
+                        host: str, port: int, seeds: dict, arm,
+                        baseline_unscorable: tuple[str, ...] = ()) -> list[str]:
     """How a customer's own engineer repeats this by hand.
 
     The difference between a finding and a claim. A client who cannot reproduce a result
@@ -857,6 +862,20 @@ def _reproduction_steps(case: ChatCase, stats: TrialStats, best: OracleResult, *
             f"{stats.control_hits} of {stats.control_trials} times, so the behaviour is "
             f"not something this assistant does in normal conversation. It does NOT by "
             f"itself show the attack caused it.{why}")
+    elif baseline_unscorable:
+        # A baseline WAS configured and did run; it simply cannot score this case.
+        # "No control arm ran" alone would read as a misconfiguration the operator
+        # should go and fix, and they would find the baseline sitting in the
+        # inventory exactly as it should be.
+        steps.append(
+            f"No control arm ran, so nothing here is falsified. The shared baseline "
+            f"questions were sent, but this case is scored on "
+            f"{', '.join(baseline_unscorable)}, whose matcher is minted fresh per "
+            f"case or per trial -- the baseline replies were recorded before this "
+            f"case's token existed, so scoring them against it would report a clean "
+            f"control that could not have been anything else. Write a matched "
+            f"control for this case -- the same turns with only the attack clause "
+            f"removed -- and it becomes falsifiable.")
     else:
         steps.append("No control arm ran, so nothing here is falsified. Treat this as an "
                      "observation to confirm rather than a finding.")

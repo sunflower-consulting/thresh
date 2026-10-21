@@ -216,7 +216,19 @@ def test_a_replayed_baseline_is_not_scored_on_a_rung_it_cannot_fire_for():
         assert report.get("baseline_unscorable_rungs") == ["CALLBACK"], (
             "the dropped rung must be named, or the report cannot explain why a "
             "case with a baseline configured has no control")
-        assert "control_note" in report
+        assert "control_absent_because" in report, (
+            "the report must carry the reason; `control_note` is the corpus's "
+            "separate statement about matched controls and must not be reused")
+
+        # The operator reads the reproduction steps, not the report dict. A reason
+        # that stops at the dict is a reason nobody sees, and "no control arm ran"
+        # on its own reads as a misconfiguration they would then fail to find.
+        steps = " ".join(finding.reproduction_steps)
+        assert "CALLBACK" in steps and "minted fresh" in steps, (
+            f"the steps do not explain why there is no control: {steps[-400:]!r}")
+        assert "matched control" in steps, (
+            "the steps must say what would make this case falsifiable")
+
         assert finding.state is not FindingState.VALIDATED, (
             f"state is {finding.state.value}: promoted on a p-value drawn from a "
             f"control arm that could not fire")
