@@ -42,7 +42,7 @@ WHAT IS NOT RE-EXPORTED, and why it is not an oversight: four modules define a
 the most ambiguous. They stay where they are, and the submodule is the API:
 
     from sunflower_thresh.obligations import coverage as coverage, render as render
-    from sunflower_thresh.diff import diff_runs as diff_runs, render as render_diff as render as render_diff
+    from sunflower_thresh.diff import diff_runs as diff_runs, render as render_diff
 
 STABILITY
 

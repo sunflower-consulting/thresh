@@ -121,7 +121,7 @@ thresh consolidate  build an engagement's machine files from its quotable runs
 
 The commands are a convenience over a library. Everything here is reachable from Python, and a real engagement is a script - the client's endpoint, their signed scope, their canary, the cases that apply to them. [`examples/engagement.py`](examples/engagement.py) is that script, runnable as it stands against the bundled target, with the two lines a client run changes marked; a test executes it, so it cannot rot into advice that no longer works.
 
-The names it needs are re-exported from the top level, lazily, so `import thresh` stays cheap and `thresh --help` does not pay for pydantic to print a line:
+The names it needs are re-exported from the top level, lazily, so `import sunflower_thresh` stays cheap and `thresh --help` does not pay for pydantic to print a line:
 
 ```python
 from sunflower_thresh import AgentContext, PolicyEngine, load_inventory

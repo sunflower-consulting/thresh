@@ -141,3 +141,64 @@ def test_the_policy_package_re_exports_nothing():
     assert out == ["0", "0", "0"], (
         f"importing policy.decision loaded engine/killswitch/audit = {out}; "
         f"something re-introduced an eager import in the policy package")
+
+
+def test_the_import_examples_in_prose_are_valid_python_and_name_the_real_package():
+    """Prose that tells a reader what to type has to be typeable.
+
+    Two defects this guards, both found by review and both in the first thing a
+    reader meets:
+
+    `__init__.py`'s "the submodule is the API" block carried
+    `render as render_diff as render as render_diff` -- a doubled alias clause
+    that raises `SyntaxError: cannot use name as import target`. It sat in the
+    docstring that exists specifically to say how to import from this package.
+
+    README.md said "so `import thresh` stays cheap". There is no module named
+    `thresh`; `import thresh` raises ModuleNotFoundError. The import package is
+    `sunflower_thresh` and only the CLI command is `thresh`, which is exactly the
+    pair a reader is most likely to confuse, and the sentence confirmed the wrong
+    half. The claim around it is true and stays: the top-level import does not
+    load pydantic.
+
+    Scanned rather than pinned, so a new example cannot arrive broken.
+    """
+    import ast
+    from pathlib import Path
+
+    import sunflower_thresh
+
+    root = Path(__file__).resolve().parents[1]
+    prose = {
+        "sunflower_thresh.__doc__": sunflower_thresh.__doc__ or "",
+        "README.md": (root / "README.md").read_text(),
+        "docs/method.md": (root / "docs" / "method.md").read_text(),
+    }
+
+    for where, text in prose.items():
+        for raw in text.split("\n"):
+            line = raw.strip()
+            if not line.startswith(("from sunflower_thresh", "import sunflower_thresh")):
+                continue
+            if line.endswith(("(", ",", "\\")):
+                continue  # a real multi-line import in code, not an example
+            try:
+                ast.parse(line)
+            except SyntaxError as exc:
+                raise AssertionError(
+                    f"{where} shows an import a reader cannot type: {line!r} "
+                    f"({exc.msg})") from None
+
+        assert "import thresh" not in text.replace("import sunflower_thresh", ""), (
+            f"{where} says `import thresh`; the import package is "
+            f"`sunflower_thresh` and only the CLI command is `thresh`")
+
+    # The claim the README makes around that sentence, so correcting the name
+    # cannot quietly leave a false promise beside it.
+    import subprocess
+    import sys
+    out = subprocess.run(
+        [sys.executable, "-c",
+         "import sunflower_thresh, sys; print(int('pydantic' in sys.modules))"],
+        capture_output=True, text=True, check=True).stdout.strip()
+    assert out == "0", "the top-level import now loads pydantic; the README says it does not"
