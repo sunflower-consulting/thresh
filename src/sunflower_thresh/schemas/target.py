@@ -199,9 +199,12 @@ class TargetInventory(BaseModel):
     #: client told us -- "yes it has tools" is a statement of fact about their system
     #: that belongs in the engagement record next to who authorised it.
     target_features: tuple[str, ...] = ()
-    #: Channels the harness can plant indirect content into: "document",
-    #: "tool_output", "web_page", "email", "file_metadata", "calendar", "image",
-    #: "audio". Empty means no indirect case can run.
+    #: Channels the harness can plant indirect content into. The vocabulary is
+    #: `corpus.CHANNELS`, which a drift test holds against the corpus itself; it is
+    #: deliberately NOT written out again here, because the copy that used to be
+    #: had gone stale by three names -- `tool_metadata`, `agent_config` and
+    #: `rendered_screen` were in use and absent from the list -- and whoever filled
+    #: this field in from it believed it. Empty means no indirect case can run.
     #:
     #: The most dangerous omission in the whole system if this is wrong in the
     #: optimistic direction. An indirect-injection case run without its seeding sends

@@ -1,7 +1,7 @@
 """Tiny, dependency-free ANSI styling for the CLI surfaces.
 
 Taste rules: cyan carries *structure* (headers, arrows), green/yellow/red carry
-*judgement* (how good a number is), and dim-grey carries *secondary detail*
+*judgement* (how good a number is), and grey carries *secondary detail*
 (units, budgets, parentheticals). Bold is for names only. Nothing else.
 
 Colour is emitted only to a real terminal. It honours ``NO_COLOR`` (disable) and
@@ -13,19 +13,20 @@ from __future__ import annotations
 import os
 import sys
 
+#: Exactly the SGR names the semantic helpers below request, and nothing else.
+#: `style` emits the reset itself, so "reset" was never a lookup either.
+#:
+#: Kept in step with the helpers deliberately. An entry no helper asks for is a
+#: colour this module cannot emit and no caller can reach -- `style` is not
+#: re-exported and has no caller outside this file -- so it reads as a palette
+#: while being four dead strings. The taste rules above are the whole palette.
 _CODES = {
-    "reset": "0",
     "bold": "1",
-    "dim": "2",
-    "italic": "3",
     "red": "31",
     "green": "32",
     "yellow": "33",
-    "blue": "34",
-    "magenta": "35",
     "cyan": "36",
     "grey": "90",
-    "bright_green": "92",
 }
 
 

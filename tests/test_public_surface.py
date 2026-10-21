@@ -202,3 +202,40 @@ def test_the_import_examples_in_prose_are_valid_python_and_name_the_real_package
          "import sunflower_thresh, sys; print(int('pydantic' in sys.modules))"],
         capture_output=True, text=True, check=True).stdout.strip()
     assert out == "0", "the top-level import now loads pydantic; the README says it does not"
+
+
+def test_the_palette_holds_only_colours_the_module_can_emit():
+    """`_CODES` is the palette, and an entry no helper requests is a dead string.
+
+    It carried `dim`, `italic`, `blue` and `magenta`, none of which appears
+    anywhere else in the package. `style` is not re-exported and has no caller
+    outside `termstyle.py`, so those four were unreachable -- a palette that read
+    as an offer the module does not make, beside a docstring laying out strict
+    taste rules for the colours it does.
+
+    Scanned from the helpers rather than pinned to a list, so adding a helper
+    that needs a new colour is not a test failure, and adding a colour no helper
+    needs is.
+    """
+    import re
+    from pathlib import Path
+
+    from sunflower_thresh import termstyle
+
+    src = Path(termstyle.__file__).read_text()
+    # Every quoted name inside every `style(...)` call. `_CODES` is read in exactly
+    # one place -- the comprehension inside `style` -- so a name is reachable only
+    # by being passed to that function.
+    requested = set()
+    for call in re.findall(r"style\(([^)]*)\)", src):
+        requested |= set(re.findall(r"""["']([a-z_]+)["']""", call))
+
+    declared = set(termstyle._CODES)
+    assert requested, "found no style() call to read the palette from"
+    assert declared - requested == set(), (
+        f"{sorted(declared - requested)} are in the palette and no helper requests "
+        f"them; `style` has no caller outside termstyle.py, so they cannot be "
+        f"reached")
+    assert requested - declared == set(), (
+        f"a helper requests {sorted(requested - declared)}, which the palette does "
+        f"not define, so it would raise KeyError at the first call")
