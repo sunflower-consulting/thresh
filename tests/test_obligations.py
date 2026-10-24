@@ -834,12 +834,26 @@ def test_the_readme_numbers_still_match_the_vendored_catalogue():
     annex_iii = coverage(snap, [], attempted=set(), instruments=("ai-act",),
                          system_classes=("annex-iii-high-risk",))
 
+    future_rows = (annex_iii.get("not_yet_in_force") or {}).get("obligations") or []
+    gap = annex_iii.get("unreachable_by_any_technique") or {}
+
     actual = {
         "catalogue total": len(snap.get("obligations") or {}),
         "not yet in force": (everything.get("not_yet_in_force") or {}).get("count"),
         "annex iii in scope": len(annex_iii.get("obligations") or []),
         "annex iii not yet in force": (annex_iii.get("not_yet_in_force") or {}).get("count"),
+        # The consequence the paragraph stops at, and the sharpest number on the
+        # page: for this system class nothing that admits test evidence binds yet,
+        # and some of what is coming has nothing in the library pointed at it.
+        "annex iii future testable": sum(
+            1 for r in future_rows if r.get("verifiable") in ("test", "hybrid")),
+        "annex iii future with no technique": (
+            gap.get("not_yet_binding") or {}).get("count"),
     }
+    assert annex_iii["testable_total"] == 0, (
+        f"the README says an Annex III system has no duty today that a run can "
+        f"evidence; the catalogue now says {annex_iii['testable_total']}. Reword "
+        f"the paragraph rather than this assertion")
 
     m = re.search(r"(\d+) of (\d+) obligations do not apply yet", readme)
     assert m, ("the README paragraph quoting 'N of M obligations do not apply yet' is "
@@ -862,3 +876,22 @@ def test_the_readme_numbers_still_match_the_vendored_catalogue():
         f"README says {quoted_a3_nyf} of the {quoted_a3} in scope for an Annex III "
         f"system; the catalogue says {actual['annex iii not yet in force']} of "
         f"{actual['annex iii in scope']}")
+
+    m3 = re.search(r"the (\d+) that admit test evidence all begin on", readme)
+    assert m3, ("the README sentence quoting 'the N that admit test evidence all "
+                f"begin on ...' is gone or reworded; re-check it against {actual} "
+                f"and update this test")
+    assert int(m3.group(1)) == actual["annex iii future testable"], (
+        f"README says {m3.group(1)} Annex III duties that admit test evidence begin "
+        f"later; the catalogue says {actual['annex iii future testable']}")
+
+    m4 = re.search(r"pointed at (\d+) of those (\d+)", readme)
+    assert m4, ("the README sentence quoting 'pointed at N of those M' is gone or "
+                f"reworded; re-check it against {actual} and update this test")
+    assert (int(m4.group(1)), int(m4.group(2))) == (
+        actual["annex iii future with no technique"],
+        actual["annex iii future testable"]), (
+        f"README says nothing in the crosswalk is pointed at {m4.group(1)} of those "
+        f"{m4.group(2)}; the catalogue says "
+        f"{actual['annex iii future with no technique']} of "
+        f"{actual['annex iii future testable']}")

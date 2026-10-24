@@ -196,6 +196,8 @@ Those count as techniques attempted, so the obligations bearing on them read `pr
 They are never cited as evidence that an obligation was tested.
 
 A duty that does not bind yet is reported apart from one you failed. Measured on the bundled catalogue: 30 of 66 obligations do not apply yet, most from 2027-12-02 after the Digital Omnibus moved them, and for an Annex III high-risk system today that is 21 of the 22 in scope.
+The one that does bind is review-only, so an Annex III high-risk system has no duty today that any run can produce evidence about, and the 7 that admit test evidence all begin on 2027-12-02.
+Nothing in the crosswalk is pointed at 4 of those 7, which is worth knowing fourteen months early rather than on the day they bind.
 They used to be reported exactly like the ones in force, and the worst of those rows was not `not-probed` but `probed-clean` - which a client reads as "we checked this and you are fine" about a duty with no force for another year.
 So the coverage figure is over duties that bind today, every row says whether it binds, and the rest are listed separately with their dates.
 
