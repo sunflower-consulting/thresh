@@ -707,6 +707,69 @@ def test_the_two_numbers_beside_each_other_count_the_same_set(snap):
     assert "of those 0" not in text
 
 
+def test_a_crosswalk_gap_that_does_not_bind_yet_is_still_reported(snap):
+    """The fix for "4 of those 0" above deleted the report it was meant to make
+    honest, and this is the other side of it.
+
+    Restricting the gap to BINDING duties kept the sentence true and, for the one
+    scope the whole offer is pitched at, emptied it: every Annex III duty that
+    admits test evidence binds on 2027-12-02, so the gap was empty, the block was
+    never emitted, and four duties with nothing in the library pointed at them left
+    no trace in the appendix at all. The fourteen months before they bind is exactly
+    when building a technique is cheap, and the reader who could act on that was the
+    one told nothing. An empty gap and a suppressed gap are not the same page.
+    """
+    cov = coverage(snap, [], attempted=set(), instruments=("ai-act",),
+                   system_classes=("annex-iii-high-risk",))
+    gap = cov.get("unreachable_by_any_technique")
+    assert gap, ("no crosswalk gap reported for an Annex III system. The duties are "
+                 "in scope and nothing in the crosswalk bears on them, so silence "
+                 "here is the regression this test exists for")
+    pending = gap.get("not_yet_binding") or {}
+    assert pending.get("count") == 4
+    assert {r["obligation"] for r in pending["obligations"]} == {
+        "ai-act:Art.12", "ai-act:Art.14(1)-(3)", "ai-act:Art.14(4)",
+        "ai-act:Art.15(4)"}
+    assert all(r["applies_from"] == "2027-12-02" for r in pending["obligations"])
+
+    text = render(cov)
+    assert "do not bind yet also have NO technique" in text
+    assert "ai-act:Art.12" in text
+    # The sentence the binding-only filter was introduced to prevent must still not
+    # appear, now that the block is emitted with a zero binding count.
+    assert "of those 0" not in text
+
+
+def test_the_two_halves_of_the_crosswalk_gap_are_the_whole_gap(snap):
+    """The partition, asserted as a partition rather than as two numbers.
+
+    `count` is the binding half because the sentence it feeds names the same
+    denominator as the coverage figure. That is only safe while the other half is
+    reported too -- so what this pins is that nothing is dropped between the two,
+    which is the property the previous implementation lost.
+    """
+    instruments = ("ai-act", "gdpr", "dora", "nis2")
+    for classes in (("annex-iii-high-risk",), ("limited-risk",),
+                    ("gpai-systemic-risk",), ("important-entity",)):
+        cov = coverage(snap, [], attempted=set(), instruments=instruments,
+                       system_classes=classes)
+        whole = unreachable_obligations(snap, instruments=instruments,
+                                        system_classes=classes, binding_only=False)
+        gap = cov.get("unreachable_by_any_technique") or {}
+        reported = {r["obligation"] for r in (gap.get("obligations") or ())}
+        reported |= {r["obligation"] for r in
+                     ((gap.get("not_yet_binding") or {}).get("obligations") or ())}
+        assert reported == set(whole), (
+            f"{classes}: the appendix reports {sorted(reported)} and the crosswalk "
+            f"gap is {sorted(whole)}. Every duty nothing bears on has to appear in "
+            f"one half or the other")
+        assert gap.get("count", 0) == sum(
+            1 for oid in whole if oid in reported
+            and oid not in {r["obligation"] for r in
+                            ((gap.get("not_yet_binding") or {}).get("obligations")
+                             or ())})
+
+
 def test_a_scope_whose_duties_all_bind_reads_normally(snap):
     """The ordinary path must not acquire a caveat it does not need."""
     cov = coverage(snap, [], attempted=set(), instruments=("dora",),

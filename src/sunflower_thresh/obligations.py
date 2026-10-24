@@ -757,12 +757,28 @@ def coverage(snapshot: dict, findings: list[dict], *, attempted: set[str],
     taxa = taxa_coverage(snapshot, touched)
     rev, rev_fault = provenance(snapshot)
     faults = snapshot_faults(snapshot)
-    # Binding only, so "N of those M" refers to the same M as the figure above it.
-    # It said "4 of those 0" once the figure started excluding duties that do not
-    # bind yet, which is the kind of sentence a reader stops trusting the page over.
-    unreachable = unreachable_obligations(
+    # The crosswalk gap, over EVERY in-scope duty that admits test evidence, and
+    # partitioned afterwards rather than filtered before.
+    #
+    # Computing it binding-only kept one sentence honest and deleted the report.
+    # The sentence was real -- it read "4 of those 0" once the coverage figure
+    # started excluding duties that do not bind yet -- but restricting the gap to
+    # fix it meant that under `annex-iii-high-risk`, where every testable duty
+    # binds on 2027-12-02, the gap was empty, the block was never emitted, and
+    # FOUR duties with no technique pointed at them left no trace in the appendix.
+    # The fourteen months before they bind is exactly when building a technique is
+    # cheap, and the one reader who could act on that was the one told nothing.
+    #
+    # So the figure stays binding-only and the gap does not. They are different
+    # questions: "what can you show today" and "what can this library never show".
+    scoped_all = in_scope(snapshot, instruments=instruments,
+                          system_classes=system_classes)
+    gap_all = unreachable_obligations(
         snapshot, instruments=instruments, system_classes=system_classes,
-        on=on, binding_only=True)
+        on=on, binding_only=False)
+    unreachable = {k: v for k, v in gap_all.items()
+                   if in_force(scoped_all[k], on)}
+    gap_future = {k: v for k, v in gap_all.items() if k not in unreachable}
 
     out: dict[str, Any] = {
         "run_id": run_id,
@@ -821,26 +837,49 @@ def coverage(snapshot: dict, findings: list[dict], *, attempted: set[str],
                      "the coverage figure above. Measuring against them now is "
                      "preparation rather than assurance -- and evidence found "
                      "against one is still evidence, reported here so it is not "
-                     "lost in a figure it does not belong to"),
+                     "lost in a figure it does not belong to."),
         }
     if rev_fault:
         out["almanac_revision_claimed"] = rev
         out["almanac_provenance_fault"] = rev_fault
     if faults:
         out["almanac_faults"] = faults
-    if unreachable:
+    if gap_all:
         # A crosswalk gap, not a run's gap. These are labelled `not-probed` above
         # because the consuming schema's status enum is closed, so without naming
         # them here an operator reads "we did not get to it" where the truth is that
         # nothing in the library is pointed at it and no run ever would.
-        out["unreachable_by_any_technique"] = {
+        #
+        # Emitted whenever EITHER half is non-empty, so a scope whose every gap is
+        # in the future still reports one. `count` stays the binding half, because
+        # the sentence it feeds names the same denominator as the figure above.
+        block: dict[str, Any] = {
             "count": len(unreachable),
             "obligations": [{"obligation": k, "verifiable": v}
                             for k, v in unreachable.items()],
             "note": ("no technique in the crosswalk is mapped to these, so no run "
                      "can produce evidence about them. Closing that is a crosswalk "
-                     "change, not a bigger run"),
+                     "change, not a bigger run."),
         }
+        if gap_future:
+            # Reported apart for the same reason `not_yet_in_force` is: folding a
+            # duty that does not bind yet into today's figure claims a check that
+            # could not have been meaningful. Kept, rather than dropped, because
+            # this is the half with lead time on it.
+            block["not_yet_binding"] = {
+                "count": len(gap_future),
+                "obligations": [
+                    {"obligation": k, "verifiable": v,
+                     "applies_from": scoped_all[k].get("applies_from")}
+                    for k, v in gap_future.items()],
+                # Says only what the rendered sentence does not. It used to repeat
+                # "these do not bind yet and nothing bears on them", which is the
+                # sentence the reader has just finished, and a client report that
+                # says a thing twice reads as one nobody proofread.
+                "note": ("building a technique before the date is preparation; "
+                         "after it, the same gap is in an appendix."),
+            }
+        out["unreachable_by_any_technique"] = block
     return out
 
 
@@ -911,12 +950,29 @@ def render(cov: dict, *, title: str = "control mapping") -> str:
     gap = cov.get("unreachable_by_any_technique") or {}
     if gap:
         lines.append("")
-        lines.append("  " + ts.warn(
-            f"{gap['count']} of those {testable} have NO technique crosswalked to "
-            f"them, so no run reaches them"))
-        for row in (gap.get("obligations") or ())[:10]:
-            lines.append(f"    {row['obligation']}  {ts.muted(row['verifiable'])}")
-        lines.append("  " + ts.muted(gap.get("note", "")))
+        # Guarded, because the block is now emitted when only the future half is
+        # non-empty: "0 of those 0 have NO technique" is the sentence this whole
+        # section exists to avoid printing.
+        if gap.get("count"):
+            lines.append("  " + ts.warn(
+                f"{gap['count']} of those {testable} have NO technique crosswalked "
+                f"to them, so no run reaches them"))
+            for row in (gap.get("obligations") or ())[:10]:
+                lines.append(f"    {row['obligation']}  {ts.muted(row['verifiable'])}")
+            lines.append("  " + ts.muted(gap.get("note", "")))
+        pending = gap.get("not_yet_binding") or {}
+        if pending:
+            lines.append("  " + ts.warn(
+                f"{pending['count']} obligation(s) that do not bind yet also have "
+                f"NO technique crosswalked to them"))
+            soonest = sorted((pending.get("obligations") or ()),
+                             key=lambda r: str(r.get("applies_from") or ""))
+            for row in soonest[:10]:
+                lines.append(f"    {row.get('applies_from')}  {row['obligation']}"
+                             f"  {ts.muted(str(row.get('verifiable') or ''))}")
+            if len(soonest) > 10:
+                lines.append(f"    {ts.muted(f'+{len(soonest) - 10} more')}")
+            lines.append("  " + ts.muted(pending.get("note", "")))
 
     lines.append("")
     lines.append(f"  {ts.name('techniques')}  "
