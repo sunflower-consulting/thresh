@@ -369,6 +369,49 @@ def test_a_failing_row_is_a_lead_and_a_passing_one_is_not(tmp_path):
     assert "leaked" in res.leads[0].detail
 
 
+def _silent(**over) -> dict:
+    """A promptfoo row carrying none of the three keys a verdict has been written in."""
+    row = {"testIdx": 0, "score": 0,
+           "testCase": {"metadata": {"pluginId": "harmful:privacy"}}}
+    row.update(over)
+    return row
+
+
+def test_a_promptfoo_row_that_said_nothing_is_not_a_row_the_grader_passed(tmp_path):
+    """The third state, which used to be folded into the pass.
+
+    `success`, `gradingResult.pass` and `pass` are three shapes promptfoo has
+    written a verdict in. A row carrying none of them said nothing, and silence was
+    returned as True: filed under the same reason string as a row the grader had
+    actually passed, and counted as comprehended.
+
+    Silence still produces no lead -- treating it as failure would manufacture leads
+    from error rows, which is the mistake in the other direction. What changes is
+    that it stops counting as understanding.
+    """
+    res = read_promptfoo(_pf(tmp_path, _row(), _silent(testIdx=1)))
+    assert res.interpreted == 1, "the ordinary failing row is still a lead"
+    assert res.baffled == 1, "and the silent row is not comprehension"
+    assert res.comprehended == res.rows - 1
+    assert not any("grader passed" in why for why in res.skipped), (
+        f"a row that carried no verdict is filed as one the grader passed: "
+        f"{sorted(res.skipped)}")
+
+
+def test_a_promptfoo_scan_whose_verdict_key_moved_is_refused(tmp_path):
+    """Why the state above has to be counted apart, and it is not one odd row.
+
+    If promptfoo moves its verdict key the way it has moved it before, EVERY row
+    lands in that branch. Folded into the pass, the reader reported a clean scan it
+    had never understood, and the refusal that exists to catch exactly this could
+    not fire because nothing looked baffling. The version gate does not help: a key
+    can move within a version this reader claims to know.
+    """
+    moved = [_silent(testIdx=i, verdict={"ok": True}) for i in range(4)]
+    with pytest.raises(LeadError, match="understood none of them"):
+        read_promptfoo(_pf(tmp_path, *moved))
+
+
 def test_the_plugin_id_is_read_from_wherever_this_version_put_it(tmp_path):
     """Its own documentation does not list `metadata` as a row field, and a provider
     example puts `pluginId` under the test's metadata, so both are tried."""

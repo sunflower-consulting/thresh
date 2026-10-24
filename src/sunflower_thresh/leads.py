@@ -438,8 +438,16 @@ def read_promptfoo(path: str | Path, *,
             out.note("not an object")
             continue
         seen_keys.update(map(str, row))
-        if _promptfoo_passed(row):
+        verdict = _promptfoo_verdict(row)
+        if verdict is True:
             out.note("row the grader passed")
+            continue
+        if verdict is None:
+            # Not a pass, not a lead, and NOT comprehension. See the three states
+            # in `_promptfoo_verdict`: counting this as understood is what let a
+            # scan whose verdict key moved report itself clean.
+            out.note("row carrying no verdict this reader could find",
+                     understood=False)
             continue
         probe = _promptfoo_plugin(row)
         if not probe:
@@ -489,8 +497,19 @@ def _promptfoo_rows(p: Path, out: ReadResult) -> tuple[list, int | None]:
     return rows, None
 
 
-def _promptfoo_passed(row: dict) -> bool:
-    """Whether the grader passed this row, under either of the shapes it writes."""
+def _promptfoo_verdict(row: dict) -> bool | None:
+    """Whether the grader passed this row, or None when it said nothing.
+
+    THREE states, which is why this does not return a bare bool. It used to, with
+    silence folded into the pass -- so a row carrying no verdict was filed under the
+    same reason string as a row the grader had actually passed, and counted as
+    comprehended. If promptfoo moves its verdict key, EVERY row lands in that
+    branch: the reader reports a clean scan it never understood, and the refusal
+    that exists to catch a moved format cannot fire because nothing looks baffling.
+
+    Silence still produces no lead -- treating it as failure would manufacture
+    leads from error rows, which is the mistake in the other direction.
+    """
     if isinstance(row.get("success"), bool):
         return row["success"]
     grading = row.get("gradingResult")
@@ -498,9 +517,7 @@ def _promptfoo_passed(row: dict) -> bool:
         return grading["pass"]
     if isinstance(row.get("pass"), bool):
         return row["pass"]
-    # Nothing said. Not a pass and not a lead: `_promptfoo_plugin` will decline it,
-    # and treating silence as failure would manufacture leads from error rows.
-    return True
+    return None
 
 
 def _promptfoo_plugin(row: dict) -> str:
