@@ -727,9 +727,29 @@ def coverage(snapshot: dict, findings: list[dict], *, attempted: set[str],
             row["techniques_run"] = sorted(t for t in bearing if t in attempted)
         else:
             row["status"] = "not-probed"
+            # `skipped` is {case id: why} for the WHOLE run, and nothing here maps a
+            # case back to the taxa bearing on this row -- `bearing` is techniques
+            # and the keys are case ids. So this cannot say why THIS obligation went
+            # unprobed, and it used to anyway: it printed `why[0]`, the
+            # alphabetically first reason recorded anywhere in the run, as the
+            # reason for every not-probed row. Every other reason vanished, and the
+            # one that survived was pasted onto obligations whose techniques were
+            # skipped for something else entirely -- a confident, specific, wrong
+            # sentence, which is worse than a vague one because it reads as
+            # informative and stops the reader asking. It sent an operator after a
+            # judge when the missing thing was tool-call visibility.
             why = sorted(set(skipped.values())) if skipped else []
-            row["reason"] = ("techniques bearing on this obligation were not run"
-                             + (f": {why[0]}" if why else ""))
+            base = "techniques bearing on this obligation were not run"
+            if not why:
+                row["reason"] = base
+            elif len(why) == 1:
+                row["reason"] = f"{base}: {why[0]}"
+            else:
+                shown = "; ".join(why[:4])
+                more = f" (+{len(why) - 4} more)" if len(why) > 4 else ""
+                row["reason"] = (
+                    f"{base}. This run recorded {len(why)} distinct skip reasons "
+                    f"and they are not attributed per obligation: {shown}{more}")
         if o.get("verification") == "unconfirmed":
             row["citation_unconfirmed"] = True
         # Whether it binds yet. On every row rather than only the future ones, so a

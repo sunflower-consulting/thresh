@@ -235,6 +235,46 @@ def test_probed_clean_and_not_probed_stay_apart():
         "and it carries the run's own words for why")
 
 
+def test_a_run_with_several_skip_reasons_does_not_name_one_as_the_reason():
+    """It printed the alphabetically first reason recorded anywhere in the run as
+    THE reason for every not-probed row.
+
+    `skipped` is {case id: why} for the whole run, and nothing here maps a case back
+    to the taxa bearing on a row, so this genuinely cannot say why THIS obligation
+    went unprobed. It said so anyway. Every other reason left no trace in the
+    document, and the one that survived was pasted onto obligations whose techniques
+    were skipped for something else: a confident, specific, wrong sentence, which is
+    worse than a vague one because it reads as informative and stops the reader
+    asking. The real case that produced it sent a reader after a judge when the
+    missing thing was tool-call visibility.
+    """
+    doc = _mini()
+    cov = coverage(doc, [], attempted=set(), instruments=("x",),
+                   skipped={"C-1": "unreachable: needs tool_visibility",
+                            "C-2": "unreachable: needs judge",
+                            "C-3": "not selected: status draft"})
+    row = next(r for r in cov["obligations"] if r["obligation"] == "x:Art.1")
+    assert row["status"] == "not-probed"
+
+    reason = row["reason"]
+    assert "3 distinct skip reasons" in reason, (
+        f"the row has to say how many reasons the run recorded: {reason}")
+    assert "not attributed per obligation" in reason, (
+        f"and that it cannot tell which belongs to this row: {reason}")
+    for why in ("tool_visibility", "needs judge", "status draft"):
+        assert why in reason, f"{why!r} left no trace in the document: {reason}"
+
+
+def test_one_skip_reason_is_still_quoted_plainly():
+    """The ordinary case must not acquire the caveat it does not need."""
+    doc = _mini()
+    cov = coverage(doc, [], attempted=set(), instruments=("x",),
+                   skipped={"C-1": "no seeding sink was available"})
+    row = next(r for r in cov["obligations"] if r["obligation"] == "x:Art.1")
+    assert row["reason"].endswith("no seeding sink was available")
+    assert "distinct skip reasons" not in row["reason"]
+
+
 def test_a_tested_row_names_its_findings_and_a_review_row_cannot():
     """Both pinned by the consuming schema: `tested` requires findings, and
     `review-only` permits none, because no test result can speak to a document."""
