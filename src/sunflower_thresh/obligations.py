@@ -912,13 +912,22 @@ def render(cov: dict, *, title: str = "control mapping") -> str:
         paint = ts.good if status == "tested" else (
             ts.muted if status == "review-only" else ts.warn)
         lines.append(f"    {paint(f'{n:4}')}  {status}")
-    if testable:
-        summary = (f"evidence for {evidenced} of {testable} that admit test "
-                   f"evidence AND bind today; {review} review-only, which no run "
-                   f"can speak to")
+    # The counts above are over EVERY row and say so; every number in the sentence
+    # below is over the rows that BIND. Both are right and they collided: for an
+    # Annex III system the block printed "15 review-only" and the sentence under it
+    # "1 review-only", two numbers for one label on adjacent lines with nothing
+    # saying the set had changed. So the sentence names its own denominator.
+    binding = testable + review
+    if not binding:
+        summary = ("no obligation in this scope binds today, so there is no "
+                   "coverage figure to state")
+    elif testable:
+        summary = (f"of the {binding} that bind today: evidence for {evidenced} of "
+                   f"the {testable} that admit test evidence, and {review} "
+                   f"review-only, which no run can speak to")
     else:
-        summary = (f"nothing in this scope both admits test evidence and binds "
-                   f"today; {review} review-only, which no run can speak to")
+        summary = (f"of the {binding} that bind today, none admits test evidence; "
+                   f"{review} review-only, which no run can speak to")
     lines.append(f"  {ts.muted(summary)}")
 
     future = cov.get("not_yet_in_force") or {}

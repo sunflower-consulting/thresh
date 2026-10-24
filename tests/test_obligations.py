@@ -707,6 +707,33 @@ def test_the_two_numbers_beside_each_other_count_the_same_set(snap):
     assert "of those 0" not in text
 
 
+def test_the_summary_names_the_set_its_numbers_are_over(snap):
+    """"15 review-only" and "1 review-only" on adjacent lines, and both were right.
+
+    The status block counts EVERY row and says so. The sentence under it counts only
+    the rows that BIND, because that is the set a coverage figure may be stated over.
+    For an Annex III system the two differ by fourteen, and nothing between them said
+    the set had changed -- so the page offered a reader two numbers for one label and
+    no way to tell which answered their question. The same failure as "4 of those 0",
+    one line further down.
+    """
+    cov = coverage(snap, [], attempted=set(), instruments=("ai-act",),
+                   system_classes=("annex-iii-high-risk",))
+    every_row = (cov.get("counts") or {}).get("review-only", 0)
+    binding_only = cov["review_only_total"]
+    assert every_row != binding_only, (
+        "this scope no longer exercises the collision, so the test no longer "
+        "guards anything; pick a scope whose rows do not all bind")
+
+    text = render(cov)
+    binding = cov["testable_total"] + binding_only
+    assert f"of the {binding} that bind today" in text, (
+        "the sentence has to name the set it counts, because the block above it "
+        "counts a different one")
+    assert "every row, including ones that do not bind yet" in text, (
+        "and the block above has to name its own")
+
+
 def test_a_crosswalk_gap_that_does_not_bind_yet_is_still_reported(snap):
     """The fix for "4 of those 0" above deleted the report it was meant to make
     honest, and this is the other side of it.
