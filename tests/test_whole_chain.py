@@ -211,22 +211,55 @@ def test_both_files_validate_against_the_renderers_own_schemas(chain):
             + "; ".join(f"{list(e.path)}: {e.message}" for e in errors[:3]))
 
 
+def _undeclared(doc, schema, path: str = "") -> list[str]:
+    """Every key in `doc` the schema does not declare, as dotted paths.
+
+    Only where the schema declares `properties` at all: an object it says nothing
+    about is free-form by design and has nothing to disagree with. Recursive,
+    because `additionalProperties` defaults to true at EVERY level of this schema,
+    so a nested key is ignored exactly as silently as a top-level one.
+    """
+    out: list[str] = []
+    props = schema.get("properties") if isinstance(schema, dict) else None
+    if isinstance(doc, dict) and props:
+        for key, value in doc.items():
+            here = f"{path}.{key}" if path else key
+            if key not in props:
+                out.append(here)
+                continue
+            out += _undeclared(value, props[key], here)
+    elif isinstance(doc, list) and isinstance(schema, dict) and schema.get("items"):
+        for element in doc:
+            out += _undeclared(element, schema["items"], f"{path}[]")
+    return out
+
+
 @pytest.mark.skipif(not HAVE_DOC_ENGINE, reason="the report renderer is a separate repository")
-def test_the_renderer_declares_every_revision_key_the_mapping_emits(chain):
-    """The catalogue was renamed, and both spellings are emitted while the renderer
-    catches up. Neither may be one the renderer does not declare, because its schema
-    allows extra properties -- so an unknown key is ignored rather than refused, and
-    the report silently stops citing the dataset revision it resolved against."""
+def test_the_renderer_declares_every_key_the_mapping_emits(chain):
+    """The hazard runs the opposite way from validation, and it is silent.
+
+    `additionalProperties` is true at every level of the renderer's schema, so a key
+    this package emits and the renderer does not declare is IGNORED rather than
+    refused: the gate passes, the build succeeds, and the information never reaches
+    the report. It has to be caught here, on the emitting side, because the
+    receiving side cannot see a key it does not know about.
+
+    This checks EVERY key the mapping emits rather than only the revision ones. The
+    narrower version was the shape of the bug it was written for, not the shape of
+    the hazard -- it guarded two keys of a dozen, and the next undeclared key went
+    in under it.
+    """
     schema = json.loads(
         (DOC_ENGINE / "schema" / "control-mapping.schema.json").read_text())
-    declared = set(schema["properties"])
     doc = _yaml(chain["engagement"] / CONTROL_MAPPING)
-    emitted = {k for k in doc if "version" in k or "sha256" in k}
-    assert emitted, "the mapping has to say what it resolved against"
-    assert emitted <= declared, (
-        f"{sorted(emitted - declared)} is emitted here and not declared by the "
-        f"renderer's control-mapping schema. Its additionalProperties is true, so "
-        f"an undeclared key is IGNORED rather than refused -- the report would "
-        f"silently stop citing the dataset revision it resolved against. Add the "
-        f"key there (the catalogue was renamed from trellis to almanac, and both "
-        f"spellings are emitted here while the renderer catches up).")
+
+    missing = sorted(set(_undeclared(doc, schema)))
+    assert not missing, (
+        f"{missing} emitted here and not declared by the renderer's "
+        f"control-mapping schema. Its additionalProperties is true at every level, "
+        f"so an undeclared key is IGNORED rather than refused and the report "
+        f"silently loses it. Declare it there, and render it -- a declared key "
+        f"nothing reads is the same silence one step later.")
+
+    assert {k for k in doc if "version" in k or "sha256" in k}, (
+        "the mapping has to say what catalogue revision it resolved against")
