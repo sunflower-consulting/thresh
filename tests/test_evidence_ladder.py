@@ -540,3 +540,98 @@ def test_one_deterministic_hit_does_not_make_a_judge_carried_rate_deterministic(
     assert genuinely_deterministic.state is FindingState.VALIDATED, (
         f"a 10/10 deterministic rate was not promoted: "
         f"{genuinely_deterministic.validation_result}")
+
+
+# --- a rung that was never built ---------------------------------------------------
+
+def test_a_rung_whose_collaborator_was_not_supplied_is_recorded():
+    """`_build_rung` returns None for the three rungs needing a run-time
+    collaborator, and `build` used to filter those out silently.
+
+    That is usually harmless, and the comments saying so are right: the case is
+    UNREACHABLE, `applicable_chat_cases` reports it as skipped, and `Scoring.note()`
+    says "scored on N of M oracles". The problem is that those two answers come from
+    DIFFERENT sources -- reachability from the capability flags a caller passes,
+    the ladder from the objects it passes.
+
+    When they disagree, nothing spoke. A caller declaring `have_collector=True` and
+    then handing `collector=None` to the sweep got a case scored on a strict subset
+    of its declared ladder with `Scoring` reporting everything scored: the CALLBACK
+    rung gone, STRUCTURAL reported as the strongest evidence available, and no
+    DEGRADED marker anywhere. The suppressor guard three lines below this is the
+    same idea; the oracle side simply had no equivalent.
+    """
+    from sunflower_thresh.oracles import build_ladder
+
+    ladder = build_ladder(
+        [{"structural": {"contains": "x"}}, {"callback": {"token": "t"}}],
+        collector=None, seeds={})
+
+    assert len(ladder.rungs) == 1, "the structural rung still builds and scores"
+    assert ladder.errors, (
+        "the callback rung was dropped and the ladder says nothing about it")
+    assert any("callback" in e for e in ladder.errors), (
+        f"the note has to name the rung that went missing: {ladder.errors}")
+
+
+def test_a_ladder_that_got_everything_it_needs_stays_quiet():
+    """The other half, or the note becomes noise on every run and gets ignored."""
+    from sunflower_thresh.oracles import build_ladder
+
+    ladder = build_ladder([{"structural": {"contains": "x"}},
+                           {"canary": {"value": "C"}}], seeds={})
+    assert len(ladder.rungs) == 2
+    assert ladder.errors == []
+
+
+# --- "could not check" is not "checked and found nothing" --------------------------
+
+def test_a_registry_that_could_not_tell_is_not_a_clean_package_rung():
+    """Three states that came back byte-identical.
+
+    `evaluate` hit only on `resolver(...) is False`, and everything else fell
+    through to a bare `OracleResult(strength=...)`. So "the registry could not tell
+    us", "every package it named exists" and "the reply named no package at all"
+    were one result. Declining to call an unknown a hit is correct -- reporting a
+    registry timeout as a hallucinated package would be a finding manufactured by
+    our own network -- but reporting it as a clean check is the same error pointing
+    the other way, and a run whose resolver was rate-limited produced a rung that
+    had verified nothing and said so nowhere.
+    """
+    from sunflower_thresh.oracles import PackageExistsOracle
+
+    reply = ChatObservation(reply="pip install fastjson-helper")
+    cannot_tell = PackageExistsOracle(lambda n, r: None).evaluate(reply)
+    all_exist = PackageExistsOracle(lambda n, r: True).evaluate(reply)
+    named_none = PackageExistsOracle(lambda n, r: True).evaluate(
+        ChatObservation(reply="the weather is fine"))
+
+    assert not cannot_tell.hit, "an unknown is still not a hit"
+    assert not all_exist.hit and not named_none.hit
+
+    assert cannot_tell.inconclusive, "the rung checked nothing and has to say so"
+    assert "fastjson-helper" in cannot_tell.inconclusive
+    assert cannot_tell.detail.get("unresolved") == ["fastjson-helper on pypi"]
+
+    assert all_exist.inconclusive == "", "a real check that passed stays quiet"
+    assert named_none.inconclusive == "", "and so does a reply with nothing to check"
+    assert cannot_tell != all_exist, (
+        "the two have to be distinguishable, which is the whole finding")
+
+
+def test_an_inconclusive_rung_reaches_the_ladders_errors_once():
+    """It has to travel on the channel that already produces a DEGRADED marker, or
+    it is a field nobody reads. Once, not once per trial: ten copies of one sentence
+    in a client's report is how a real note gets skimmed past.
+    """
+    from sunflower_thresh.oracles import OracleLadder, PackageExistsOracle
+
+    ladder = OracleLadder([PackageExistsOracle(lambda n, r: None)])
+    obs = ChatObservation(reply="pip install fastjson-helper")
+    for _ in range(10):
+        ladder.evaluate(obs)
+
+    assert len(ladder.errors) == 1, (
+        f"one rung, ten trials, {len(ladder.errors)} notes: {ladder.errors}")
+    assert "could not tell us" in ladder.errors[0]
+    assert "PackageExistsOracle" in ladder.errors[0]

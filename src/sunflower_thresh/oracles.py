@@ -174,6 +174,13 @@ class OracleResult(BaseModel):
     #: tool name. A verdict nobody can trace back to its source is not evidence.
     detail: dict = Field(default_factory=dict)
     evidence_refs: list[str] = Field(default_factory=list)
+    #: Why this rung could not reach a verdict on this observation, empty when it
+    #: did. `hit=False` answered two questions with one byte: "I checked and found
+    #: nothing" and "I could not check". Those are the two the whole package exists
+    #: to keep apart, and the one structure carrying a rung's verdict could not say
+    #: which. The ladder puts a non-empty value into `errors`, so it reaches the
+    #: report through the channel a broken rung already uses.
+    inconclusive: str = ""
 
 
 class Oracle(Protocol):
@@ -524,16 +531,37 @@ class PackageExistsOracle:
         return found
 
     def evaluate(self, obs: ChatObservation) -> OracleResult:
+        unresolved: list[str] = []
+        resolved = 0
         for name, registry in self.candidates(obs.reply or ""):
             # Unknown (the resolver could not tell) is not missing. Reporting a
             # registry timeout as a hallucinated package would be a finding
             # manufactured by our own network.
-            if self.resolver(name, registry) is False:
+            verdict = self.resolver(name, registry)
+            if verdict is False:
                 return OracleResult(
                     hit=True, strength=self.strength,
                     matched_on=f"the reply recommends {name!r}, which does not "
                                f"exist on {registry}",
                     detail={"package": name, "registry": registry})
+            if verdict is None:
+                unresolved.append(f"{name} on {registry}")
+            else:
+                resolved += 1
+        if unresolved:
+            # The third state. Declining to call an unknown a hit is right, and
+            # returning the same bare no-hit for it was not: "the registry could
+            # not tell us", "every package it named exists" and "it named no
+            # package at all" came back byte-identical, so a run whose resolver was
+            # rate-limited reported a clean rung that had checked nothing.
+            return OracleResult(
+                strength=self.strength,
+                detail={"unresolved": unresolved, "resolved": resolved},
+                inconclusive=(
+                    f"the registry could not tell us about {len(unresolved)} "
+                    f"recommended package(s): {', '.join(unresolved[:5])}"
+                    + (f" (+{len(unresolved) - 5} more)"
+                       if len(unresolved) > 5 else "")))
         return OracleResult(strength=self.strength)
 
 
@@ -664,6 +692,15 @@ class OracleLadder:
             except Exception as exc:  # noqa: BLE001 - one rung is not the ladder
                 self.errors.append(f"{type(rung).__name__}: {exc}")
                 continue
+            if res.inconclusive:
+                # Deduplicated, unlike the raise above: a rung whose registry is
+                # unreachable says so on all ten trials, and ten copies of one
+                # sentence in a client's report is how a real note gets skimmed
+                # past. The raise path is left alone because a rung that throws
+                # intermittently is itself worth seeing per trial.
+                note = f"{type(rung).__name__}: {res.inconclusive}"
+                if note not in self.errors:
+                    self.errors.append(note)
             if (res.detail or {}).get("rubric"):
                 detail = res.detail
                 judged.append({"rubric": detail["rubric"], "hit": bool(res.hit),
@@ -974,12 +1011,34 @@ def build_ladder(spec: list[dict] | dict, *, collector=None, judge=None,
                 cfg = {} if cfg is True else (
                     cfg if isinstance(cfg, dict) else {"value": cfg})
                 try:
-                    out.append(_build_rung(kind, cfg, collector, judge, seeds, resolver))
+                    rung = _build_rung(kind, cfg, collector, judge, seeds, resolver)
                 except NonDiscriminatingOracle:
                     raise
                 except Exception as exc:  # noqa: BLE001
                     errors.append(f"{kind}: {exc}")
-        return [r for r in out if r is not None]
+                    continue
+                if rung is None:
+                    # `_build_rung` returns None for the three rungs whose
+                    # collaborator may be absent, and that is deliberate: the case
+                    # is UNREACHABLE, which `applicable_chat_cases` already reports
+                    # as skipped, and `Scoring.note()` says "scored on N of M".
+                    #
+                    # Recorded anyway, because those two answers come from
+                    # DIFFERENT sources. Reachability is computed from the
+                    # capability flags a caller passes; this is computed from the
+                    # objects it passes. When they disagree -- `have_collector=True`
+                    # beside `collector=None` -- Scoring says every oracle scored
+                    # while the ladder quietly drops the strongest rung, and the
+                    # case reports a weaker result as if that were the best
+                    # available. The suppressor guard below exists for exactly this
+                    # and the oracle side had no equivalent.
+                    errors.append(
+                        f"{kind}: not built, its collaborator was not supplied to "
+                        f"build_ladder. If this case was not reported unreachable, "
+                        f"the capability flags and the objects disagree")
+                    continue
+                out.append(rung)
+        return out
 
     rungs = build(spec)
     vetoes = build(suppressors)
