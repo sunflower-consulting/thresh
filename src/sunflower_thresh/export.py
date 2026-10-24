@@ -221,12 +221,24 @@ def write_run(engagement_dir: str | Path, manifest: dict,
     return out
 
 
-def load_exported_run(run_dir: str | Path) -> tuple[dict, dict]:
-    """(manifest, measurements) for one exported run. Missing is empty, not fatal."""
+def load_exported_run(run_dir: str | Path) -> tuple[dict, dict, list[str]]:
+    """(manifest, measurements, faults) for one exported run.
+
+    Missing is empty and not fatal, because one unreadable run is not the set. But
+    absent and UNREADABLE both yielded an empty dict and the caller could not tell
+    them apart, so a corrupt `manifest.yaml` reached a reader as "not quotable (not
+    marked quotable), skipped" -- a decision somebody made, reported for a run that
+    may well have been marked quotable and whose rows are now missing from the
+    deliverable. A fault and a policy must not render alike.
+
+    `faults` names each file that EXISTS and could not be read. Empty is the
+    ordinary case, so a caller that ignores it behaves exactly as before.
+    """
     import yaml
 
     d = Path(run_dir)
-    out = []
+    out: list[dict] = []
+    faults: list[str] = []
     for name in (MANIFEST, MEASUREMENTS):
         f = d / name
         if not f.is_file():
@@ -234,9 +246,10 @@ def load_exported_run(run_dir: str | Path) -> tuple[dict, dict]:
             continue
         try:
             out.append(yaml.safe_load(f.read_text(encoding="utf-8")) or {})
-        except Exception:  # noqa: BLE001 - one unreadable run is not the set
+        except Exception as exc:  # noqa: BLE001 - one unreadable run is not the set
+            faults.append(f"{name} exists and could not be read: {exc}")
             out.append({})
-    return out[0], out[1]
+    return out[0], out[1], faults
 
 
 def exported_runs(engagement_dir: str | Path) -> list[Path]:

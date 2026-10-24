@@ -131,7 +131,19 @@ def collect(engagement_dir: str | Path) -> tuple[dict, list[str]]:
     for run in exported_runs(eng):
         if run.name in NEVER_READ:
             continue
-        manifest, doc = load_exported_run(run)
+        manifest, doc, faults = load_exported_run(run)
+        if faults:
+            # A FAULT, not a decision. This used to fall through to the quotable
+            # check below and be reported as "not marked quotable" -- naming a
+            # choice nobody made, for a run whose rows then vanished from the
+            # deliverable while the engagement root quietly kept an older run's
+            # numbers. Whoever reads this has to be sent at the file.
+            notes.append(
+                f"{run.name}: skipped on a FAULT, not a decision -- "
+                + "; ".join(faults)
+                + ". This run may well be quotable; its rows are missing from the "
+                  "consolidated file until the file is readable")
+            continue
         if not doc:
             notes.append(f"{run.name}: no {MEASUREMENTS}, skipped")
             continue
@@ -148,12 +160,14 @@ def collect(engagement_dir: str | Path) -> tuple[dict, list[str]]:
         heads[str(doc.get("run_id") or run.name)] = {
             k: v for k, v in doc.items() if k != "cases"}
         latest_head = heads[str(doc.get("run_id") or run.name)]
+        dropped: dict[str, int] = {}
         for row in doc.get("cases") or []:
             cid = str(row.get("case_id") or "")
             if not cid:
                 continue
             state = str(row.get("state") or "").lower()
             if state and state not in QUOTABLE_STATES:
+                dropped[state] = dropped.get(state, 0) + 1
                 continue
             pinned = pins.get(cid)
             if pinned and pinned != doc.get("run_id"):
@@ -161,6 +175,16 @@ def collect(engagement_dir: str | Path) -> tuple[dict, list[str]]:
             # Runs arrive oldest first, so a later one simply wins unless a pin
             # named an earlier one.
             chosen[cid] = (str(doc.get("run_id") or run.name), row)
+        # Counted and reported, because `export._row` went out of its way to keep
+        # these. `under_test` is what the UNTESTED branch writes when fewer trials
+        # completed than the minimum -- "the target died mid-measurement" -- and
+        # dropping it unrecorded here renders it as a case nobody probed, at the one
+        # seam that produces the file a report is built from.
+        for state, n in sorted(dropped.items()):
+            notes.append(
+                f"{run.name}: {n} row(s) in state {state!r} left out of the "
+                f"consolidated file. Not quotable, and NOT the same as unprobed: "
+                f"the measurement exists in this run's {MEASUREMENTS}")
 
     quoted = sorted({rid for rid, _row in chosen.values()})
     # The newest run that contributed a row, falling back to the newest eligible
@@ -201,9 +225,19 @@ def collect_mapping(engagement_dir: str | Path) -> tuple[dict, list[str]]:
     for run in exported_runs(eng):
         if run.name in NEVER_READ:
             continue
-        manifest, _doc = load_exported_run(run)
+        manifest, _doc, faults = load_exported_run(run)
         path = run / CONTROL_MAPPING
         if not path.is_file():
+            continue
+        if faults:
+            # Same conflation as in `collect`, and it matters more here: the
+            # mapping is taken from ONE run entire, so a run whose manifest will
+            # not parse hands the whole regulatory appendix to an older run while
+            # the note blames a decision nobody took.
+            notes.append(
+                f"{run.name}: mapping skipped on a FAULT, not a decision -- "
+                + "; ".join(faults)
+                + ". This run may well be quotable")
             continue
         if manifest.get("quotable") is not True:
             why = manifest.get("not_quotable_because") or "not marked quotable"
@@ -228,7 +262,7 @@ def quoted_runs(doc: dict, engagement_dir: str | Path) -> list[str]:
     """Which runs this consolidated document draws from, newest last."""
     seen: list[str] = []
     for run in exported_runs(Path(engagement_dir)):
-        manifest, _doc = load_exported_run(run)
+        manifest, _doc, _faults = load_exported_run(run)
         if manifest.get("quotable") is True:
             seen.append(str(manifest.get("run_id") or run.name))
     return seen

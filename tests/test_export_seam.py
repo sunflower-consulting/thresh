@@ -137,6 +137,57 @@ def test_a_run_not_marked_quotable_never_reaches_the_consolidated_file(tmp_path)
     assert (eng / "runs" / "2026-01-01T00-00-00_t").is_dir(), "it must stay on disk"
 
 
+def test_a_corrupt_manifest_is_a_fault_and_not_a_decision(tmp_path):
+    """"Not quotable" names a choice somebody made. A file that will not parse is
+    not one, and reporting it as one sends the reader at the wrong thing.
+
+    `load_exported_run` returns an empty dict for a file that is absent AND for one
+    that is unreadable, so the quotable check below could not tell them apart: a
+    corrupt manifest read as "not quotable (not marked quotable), skipped" for a run
+    that was in fact marked quotable. Its rows then vanish from the deliverable and
+    the engagement root silently keeps an older run's numbers.
+    """
+    eng = tmp_path / "eng"; eng.mkdir()
+    m, f = runbundle.load(_bundle(tmp_path, "2026-01-01T00-00-00_t",
+                                  quotable=True, findings=[_finding()]))
+    write_run(eng, m, f)
+    manifest = eng / "runs" / "2026-01-01T00-00-00_t" / "manifest.yaml"
+    assert manifest.is_file()
+    manifest.write_text("quotable: true\n  broken: [unclosed\n")
+
+    doc, notes = collect(eng)
+    assert doc["cases"] == [], "a run that cannot be read must not be quoted"
+    assert any("FAULT" in n for n in notes), (
+        f"a corrupt manifest has to read as a fault; the notes say {notes}")
+    assert not any("not marked quotable" in n for n in notes), (
+        f"and must not be reported as a decision nobody took; notes: {notes}")
+
+
+def test_a_row_left_out_for_its_state_is_counted_rather_than_dropped(tmp_path):
+    """`under_test` is what the UNTESTED branch writes when fewer trials completed
+    than the minimum -- the target died mid-measurement, and nothing was measured.
+
+    `export._row` keeps that row deliberately: its own comment says "the budget ran
+    out" and "nobody said" are different claims. Consolidation then dropped it with
+    no record at the one seam that produces the file a report renders from, so a
+    case whose measurement was cut short arrived as a case nobody probed.
+    """
+    eng = tmp_path / "eng"; eng.mkdir()
+    m, f = runbundle.load(_bundle(
+        tmp_path, "2026-01-01T00-00-00_t", quotable=True,
+        findings=[_finding(case_id="A-1", state="validated"),
+                  _finding(case_id="B-2", state="under_test", trials=0, hits=0,
+                           truncated=True)]))
+    write_run(eng, m, f)
+    doc, notes = collect(eng)
+
+    assert [r["case_id"] for r in doc["cases"]] == ["A-1"]
+    assert any("under_test" in n for n in notes), (
+        f"the dropped row has to leave a trace; notes: {notes}")
+    assert any("NOT the same as unprobed" in n for n in notes), (
+        f"and has to say what it is not; notes: {notes}")
+
+
 def test_an_unmarked_bundle_is_not_quotable(tmp_path):
     """Fail-closed, and the one default here worth arguing about. A bundle written
     before the field existed is not one somebody declared final; it is one nobody
