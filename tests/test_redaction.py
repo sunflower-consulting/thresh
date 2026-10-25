@@ -20,8 +20,8 @@ import random
 
 import pytest
 
-from sunflower_stem.redact import PATTERNS, REDACTION_VERSION, luhn_ok, make_redactor, redact
-from sunflower_stem.runlog import RunLog, read_events
+from sunflower_thresh.redact import PATTERNS, REDACTION_VERSION, luhn_ok, make_redactor, redact
+from sunflower_thresh.runlog import RunLog, read_events
 
 #: Pinned deliberately. The version travels with a run so two runs stay
 #: comparable, and bumping it silently makes an old run's redaction claim
@@ -166,9 +166,9 @@ def test_without_a_redactor_the_log_writes_what_it_was_given(tmp_path):
 
     The library default is no redaction, matching `EvidenceStore`, because a
     redactor belongs with the provenance record that says which policy was in
-    force. Every path that `stem` itself drives constructs one; this is the
+    force. Every path that `thresh` itself drives constructs one; this is the
     escape hatch for a caller who has their own handling, and it is the reason
-    `stem doctor` reports the redaction policy rather than leaving it implied.
+    `thresh doctor` reports the redaction policy rather than leaving it implied.
     """
     log = RunLog("run-8", root=tmp_path)
     log.emit("http_request", args={"body": SENSITIVE["email"]})

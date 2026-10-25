@@ -1,4 +1,4 @@
-"""`stem demo` is the headline, so it is tested like one.
+"""`thresh demo` is the headline, so it is tested like one.
 
 The claim is not that a demo exists. It is that two commands on a machine with
 no API key, no target and no configuration produce a MEASURED result -- one with
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from sunflower_stem.demo import DEMO_CAPABILITIES, _ratio, run
+from sunflower_thresh.demo import DEMO_CAPABILITIES, _ratio, run
 
 
 @pytest.fixture
@@ -30,7 +30,7 @@ def test_the_demo_runs_with_no_key_and_no_configuration(demo):
 def test_every_built_in_case_appears(demo):
     """A case that silently stopped being dispatched would shrink the library
     without shrinking any number a reader sees."""
-    from sunflower_stem.tools.chat import BUILTIN_CHAT_CASES
+    from sunflower_thresh.tools.chat import BUILTIN_CHAT_CASES
 
     out = demo()
     for cid in BUILTIN_CHAT_CASES:
@@ -70,6 +70,7 @@ def test_the_summary_counts_add_up_to_the_cases_considered(demo):
 
     out = demo()
     m = re.search(r"(\d+) cases considered: (\d+) validated, (\d+) rejected, "
+                  r"(\d+) unconfirmed, (\d+) untested, "
                   r"(\d+) not probed, (\d+) refused by the gate, (\d+) errored", out)
     assert m, out
     considered, *parts = (int(g) for g in m.groups())
@@ -139,3 +140,94 @@ def test_the_arm_ratio_helper_never_raises(cell, expected):
     """It parses a rendered table cell, so it has to tolerate anything the table
     can hold rather than crash the summary that follows the numbers."""
     assert _ratio(cell) == expected
+
+
+def test_the_readme_quotes_the_not_probed_reason_the_demo_actually_prints():
+    """The README prints a sample run and then tells the reader to look at the last
+    row: "Nothing could score it, so it says so and carries the reason." That
+    sentence is only worth anything if the reason in the README is the reason the
+    tool prints.
+
+    It has already drifted once. The row read "no scorable oracle: judge needs
+    judge", because the oracle's name falls back to the rung kind and the
+    capability it needs is called the same thing -- so the one row the README
+    points at was the one carrying the clumsiest string in the output."""
+    import io
+    import pathlib
+    from contextlib import redirect_stdout
+
+    readme = (pathlib.Path(__file__).resolve().parents[1] / "README.md").read_text()
+    quoted = next(ln.strip() for ln in readme.splitlines()
+                  if "no scorable oracle" in ln)
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        run(trials=1)
+    assert quoted in buf.getvalue(), (
+        f"the README quotes {quoted!r}, which the demo does not print")
+
+
+def test_the_table_names_the_case_and_not_the_run(capsys):
+    """The row label is the case id, taken from the finding rather than parsed out
+    of its finding id.
+
+    The old line stripped a literal `"demo-"` prefix, which was right only while
+    the run id was the literal string `demo`. The moment a run got a real id, every
+    row read `2026-10-18T12-00-32_chat-crescendo`, and three tests that assert on
+    the table caught it only indirectly. This asserts the thing itself."""
+    run(trials=1)
+    out = capsys.readouterr().out
+    # Rows sit between the rule and the blank line before the summary. Skip the
+    # rule itself and the indented continuation lines that carry a skip reason.
+    lines = out.splitlines()
+    start = next(i for i, ln in enumerate(lines) if set(ln.strip()) == {"-"}) + 1
+    labels = []
+    for ln in lines[start:]:
+        if not ln.strip():
+            break
+        if ln.startswith(" "):
+            continue
+        labels.append(ln.split()[0])
+    assert len(labels) == 6, f"expected six rows, got {labels}"
+    for label in labels:
+        assert label.startswith("chat-"), f"row labelled with a run id: {label}"
+
+
+def test_the_library_example_still_works(tmp_path):
+    """The example is documentation that answers "how do I drive this from a script",
+    and documentation that nobody runs becomes advice that no longer works.
+
+    It is the only pattern in the repository for a client-specific engagement:
+    `demo.py` builds its inventory in code and is wired to the bundled lab, which
+    makes it a smoke test rather than something to copy. This asserts the example's
+    six-object assembly -- inventory, evidence store, gate, context, selection,
+    bundle -- actually produces a run.
+    """
+    import runpy
+    import sys
+    from pathlib import Path
+
+    from sunflower_thresh import runbundle
+
+    examples = Path(__file__).resolve().parents[1] / "examples"
+    assert (examples / "scope.yaml").is_file(), "the example's scope travels with it"
+
+    out = tmp_path / "runs"
+    argv = sys.argv[:]
+    sys.argv = ["engagement.py", "--out", str(out), "--trials", "2"]
+    try:
+        runpy.run_path(str(examples / "engagement.py"), run_name="__main__")
+    except SystemExit as exit_:
+        assert exit_.code == 0, f"the example exited {exit_.code}"
+    finally:
+        sys.argv = argv
+
+    bundles = sorted(out.iterdir())
+    assert len(bundles) == 1, bundles
+    manifest, findings = runbundle.load(bundles[0])
+    assert manifest["run_id"] == bundles[0].name
+    assert manifest["quotable"] is False, "the bundled lab is not a client target"
+    assert findings, "the example has to actually measure something"
+    assert {f.get("state") for f in findings} <= {
+        "validated", "reproduced", "rejected", "confirmed", "observed",
+        "hypothesis", "under_test", "human_review", "duplicate"}

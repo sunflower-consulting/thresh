@@ -32,6 +32,25 @@ jobs:
       - run: pip install -e '.[dev]'
       - run: ruff check .
       - run: pytest -q
+      # The report renderer is NOT checked out here, and that was tried and undone.
+      #
+      # Two cross-repository tests assert that the obligation catalogue vendored
+      # here is byte-identical to its copy there, and that the two machine files a
+      # real run produces are what its schemas permit. Checking it out as a sibling
+      # made those run in CI instead of only on a developer's machine, which looked
+      # like a straight win.
+      #
+      # It is not. It makes a green build here hostage to another repository's
+      # RELEASE STATE: this package's vendored copy is deliberately ahead of the
+      # renderer's between the day a catalogue is regenerated and the day the
+      # renderer takes the new one, and during that window CI would be red for work
+      # that is not wrong and is not here. A build that goes red for somebody else's
+      # pending commit teaches people to ignore it.
+      #
+      # So the coupling lives where it can be acted on: a developer with both
+      # checkouts sees the mismatch and re-vendors, and this job tests this package
+      # on its own. The digest in `obligations.SNAPSHOT_SHA256` is what CI checks,
+      # against the copy that ships in the wheel.
 
   quickstart:
     # The two-command quickstart is the headline claim, so it is tested rather
@@ -44,24 +63,79 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install build && python -m build
+      # One package in the wheel, and nothing else. A stale `build/` directory from
+      # before the package was renamed shipped the OLD package alongside the new
+      # one, and every other check passed: the install worked, the commands ran,
+      # and the wheel quietly carried a second copy of the code. CI builds on a
+      # clean checkout so it would not have caught it; this does.
+      - name: the wheel holds exactly one package
+        run: |
+          python - <<'EOF'
+          import glob, zipfile
+          names = zipfile.ZipFile(glob.glob("dist/*.whl")[0]).namelist()
+          tops = sorted({n.split("/")[0] for n in names})
+          pkgs = [t for t in tops if not t.endswith(".dist-info")]
+          print("top-level:", tops)
+          assert pkgs == ["sunflower_thresh"], f"unexpected packages in the wheel: {pkgs}"
+          assert any(n == "sunflower_thresh/almanac/snapshot.yaml" for n in names), \
+              "the vendored obligation catalogue must ship"
+          assert sum(n.startswith("sunflower_thresh/rubrics/") for n in names) == 12, \
+              "all twelve judge rubrics must ship"
+          EOF
       - run: pip install dist/*.whl
-      - run: stem --version
-      - run: stem doctor
-      # The headline is `stem demo`, so CI runs the command a reader types
-      # first and asserts the two things the output must contain: a measured
-      # row, and a case reported as not probed rather than as a zero.
+      - run: thresh --version
+      - run: thresh doctor
+      # The headline is `thresh demo`, so CI runs the command a reader types
+      # first and asserts the things the output must contain: a measured row, a
+      # case reported as not probed rather than as a zero, and the CALLBACK row.
+      #
+      # The callback assertion is here for the same reason as the rubric check
+      # below, and not because the suite is missing one --
+      # `test_the_out_of_band_rung_is_demonstrated` already pins it. The suite
+      # runs from the CHECKOUT. This job runs the wheel, and "proof on a channel
+      # the target does not control" is the claim the README leads with, so the
+      # one artefact a reader installs is where it is worth asserting. Without
+      # the rung name, a demo that lost the renderer would still print a full
+      # table of five rows and pass.
       - name: the quickstart produces a measured result with no key
         run: |
-          stem demo | tee /tmp/demo.txt
+          thresh demo | tee /tmp/demo.txt
           grep -q "cases considered" /tmp/demo.txt
           grep -q "not probed" /tmp/demo.txt
           grep -q "matched" /tmp/demo.txt
+          grep -qE "chat-markdown-exfil +CALLBACK" /tmp/demo.txt
+
+      # The rubric library is DATA, and `src/` held no non-Python file before it.
+      # So the failure mode this catches is specific and invisible locally: a
+      # missing `package-data` entry gives a wheel with no rubrics while a source
+      # checkout has all of them, and every test passes either way because the
+      # tests run from the checkout. Only an installed user would find out, by
+      # having the judge silently find nothing.
+      - name: the installed wheel carries the rubric library
+        run: |
+          thresh judge | tee /tmp/judge.txt
+          grep -q "WITHHELD" /tmp/judge.txt
+          if grep -qE "rubric library: +0 " /tmp/judge.txt; then
+            echo "the wheel shipped no rubrics" >&2
+            exit 1
+          fi
+
+      # The dry calibration pass needs no endpoint and no GPU, which is exactly
+      # why it belongs here. It asserts the read-out can tell three different
+      # broken judges apart -- always-yes, always-no, and one that answers without
+      # a number -- and a clean result would mean the detector sees nothing. That
+      # third case once scored 0 and was reported TOO TIMID, sending an operator to
+      # lower a threshold that was never the problem.
+      - name: the calibration detector can tell the three failures apart
+        run: |
+          thresh calibrate | tee /tmp/cal.txt
+          grep -q "the detector behaves" /tmp/cal.txt
 
       # The lab is the target the quickstart attacks, so "it starts and answers"
       # is part of the claim rather than an implementation detail.
       - name: the bundled lab serves with no model and no key
         run: |
-          stem lab --port 5005 &
+          thresh lab --port 5005 &
           for i in $(seq 1 40); do
             curl -fsS http://127.0.0.1:5005/health >/dev/null 2>&1 && break
             sleep 0.25

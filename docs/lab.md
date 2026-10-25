@@ -53,7 +53,7 @@ the denominator instead of counting as a miss.
 `--deterministic` replaces the model with a scripted stub whose rules are fixed, so
 the benchmark runs with no Ollama, no GPU and no network. A lab that cannot be
 tested is a lab that quietly rots, and it takes every measurement made against it
-with it — `tests/test_lab_chatbot.py` drives this one in-process.
+with it — `tests/test_lab.py` drives this one in-process.
 
 ## Two rules the scoreboard enforces
 
@@ -66,7 +66,7 @@ whether something counted would be as noisy as the thing being measured, and two
 runs of the same agent would differ for no reason.
 
 The board's field shape is Juice Shop's — `key`, `name`, `category`, `difficulty`,
-`solved`, `disabledEnv` — so `harness/benchmark.py` reads both through one code
+`solved`, `disabledEnv` — so the private engine's `harness/benchmark.py` reads both through one code
 path. A second benchmark should be a data file, not a fork.
 
 ## Safety

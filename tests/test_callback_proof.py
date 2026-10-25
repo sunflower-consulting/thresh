@@ -26,14 +26,15 @@ from __future__ import annotations
 import json
 import threading
 import urllib.request
+from pathlib import Path
 
 import pytest
 
-from sunflower_stem.collector import CallbackCollector
-from sunflower_stem.evidence.store import EvidenceStore
-from sunflower_stem.lab import serve
-from sunflower_stem.lab.scoreboard import CANARY
-from sunflower_stem.render import Fetch, VictimRenderer, host_allowed
+from sunflower_thresh.collector import CallbackCollector
+from sunflower_thresh.evidence.store import EvidenceStore
+from sunflower_thresh.lab import serve
+from sunflower_thresh.lab.scoreboard import CANARY
+from sunflower_thresh.render import Fetch, VictimRenderer, host_allowed
 
 
 @pytest.fixture
@@ -280,3 +281,302 @@ def test_a_fetch_reports_either_a_status_or_a_reason_never_neither():
             '![a](https://evil.example/x) ![b](file:///etc/passwd)'):
         assert isinstance(f, Fetch)
         assert f.refused or f.status is not None
+
+
+def test_a_collector_reachable_from_outside_needs_the_engagement_to_have_signed():
+    """The gate this module's docstring has always claimed and never had.
+
+    It declares `CALLBACK_CAPABILITY` and says the collector "is gated by" it, and
+    nothing read the constant: `CallbackCollector(host="0.0.0.0").start()` bound
+    every interface with no scope document consulted. A routable collector is a
+    service the operator runs on someone else's behalf, which is what an engagement
+    signs for.
+    """
+    from datetime import date
+
+    import pytest
+
+    from sunflower_thresh.collector import (
+        CALLBACK_CAPABILITY,
+        CallbackCollector,
+        CollectorRefused,
+    )
+    from sunflower_thresh.schemas.target import AuthorizationRecord, TargetInventory
+
+    def _inv(**caps):
+        return TargetInventory(
+            project="p", allowed_tools=("chat_say",), capabilities=caps,
+            authorization=AuthorizationRecord(
+                authorized_by="a", authorized_for="b", scope_summary="s",
+                granted_on=date(2026, 1, 1), reference="r"))
+
+    # Fail closed: the spellings that read like a default and mean every interface.
+    for host in ("0.0.0.0", "::", ""):
+        with pytest.raises(CollectorRefused, match=CALLBACK_CAPABILITY):
+            CallbackCollector(host=host).start()
+
+    # An inventory that does not enable it is no better than none, and says so.
+    with pytest.raises(CollectorRefused, match="does not enable it"):
+        CallbackCollector(host="0.0.0.0", inventory=_inv(plant_content=True)).start()
+
+    # Loopback never needs a signature: nothing outside the machine can reach it.
+    # `::1` is in the gate's loopback set and is deliberately not bound here: the
+    # server is `ThreadingHTTPServer`, whose address family is IPv4, so an IPv6
+    # loopback bind fails on the socket rather than on the gate. That is a separate
+    # and pre-existing gap, and asserting it works would hide it.
+    from sunflower_thresh.collector import is_loopback
+
+    assert is_loopback("::1"), "the gate must not refuse IPv6 loopback"
+    for host in ("127.0.0.1", "localhost"):
+        col = CallbackCollector(host=host)
+        try:
+            col.start()
+            assert col.running
+        finally:
+            col.stop()
+
+    # And the signed engagement may bind what it signed for.
+    signed = CallbackCollector(host="127.0.0.1",
+                               inventory=_inv(**{CALLBACK_CAPABILITY: True}))
+    try:
+        signed.start()
+        assert signed.running
+    finally:
+        signed.stop()
+
+
+def test_a_lapsed_authorization_cannot_stand_up_a_routable_collector():
+    """The capability is half the gate and I had only that half.
+
+    An expired authorization is not a weaker one: the policy gate denies every call
+    under it, so an inventory that permitted this bind would have every request the
+    collector was stood up for refused. The same miss `preflight` was written
+    around, made again one module over.
+    """
+    from datetime import date, timedelta
+
+    import pytest
+
+    from sunflower_thresh.collector import (
+        CALLBACK_CAPABILITY,
+        CallbackCollector,
+        CollectorRefused,
+    )
+    from sunflower_thresh.schemas.target import AuthorizationRecord, TargetInventory
+
+    def _inv(**auth):
+        base = {"authorized_by": "a", "authorized_for": "b", "scope_summary": "s",
+                "granted_on": date(2026, 1, 1), "reference": "r"}
+        base.update(auth)
+        return TargetInventory(
+            project="p", allowed_tools=("chat_say",),
+            capabilities={CALLBACK_CAPABILITY: True},
+            authorization=AuthorizationRecord(**base))
+
+    lapsed = _inv(expires_on=date.today() - timedelta(days=1))
+    assert lapsed.capability_enabled(CALLBACK_CAPABILITY), "the switch is on"
+    assert not lapsed.authorization.is_active(), "and the authorization is not"
+    with pytest.raises(CollectorRefused, match="NOT ACTIVE"):
+        CallbackCollector(host="0.0.0.0", inventory=lapsed).start()
+
+    future = _inv(granted_on=date.today() + timedelta(days=7))
+    with pytest.raises(CollectorRefused, match="NOT ACTIVE"):
+        CallbackCollector(host="0.0.0.0", inventory=future).start()
+
+    # And the two halves are reported apart, because the fixes differ: a switch is
+    # a decision somebody changes, a lapsed authorization is a document to re-sign.
+    unsigned = TargetInventory(
+        project="p", allowed_tools=("chat_say",), capabilities={},
+        authorization=AuthorizationRecord(
+            authorized_by="a", authorized_for="b", scope_summary="s",
+            granted_on=date(2026, 1, 1), reference="r"))
+    with pytest.raises(CollectorRefused, match="does not enable it"):
+        CallbackCollector(host="0.0.0.0", inventory=unsigned).start()
+
+    live = _inv(expires_on=date.today() + timedelta(days=30))
+    col = CallbackCollector(host="127.0.0.1", inventory=live)
+    try:
+        col.start()
+        assert col.running
+    finally:
+        col.stop()
+
+
+# --- the one request that does not pass the gate ----------------------------------
+
+def test_every_render_fetch_is_written_to_the_audit_log():
+    """The renderer's GET does not pass the policy gate, so it has to be visible.
+
+    This is the only request in the package that reaches the network without
+    `ctx.execute_tool` deciding first. Routing it through the gate would need a
+    new permitted verb, and every inventory already written omits it, so the
+    callback rung would stop firing for every existing engagement. The runner's
+    docstring now says this plainly; it previously claimed no such request
+    existed, while making one three lines below.
+
+    What is left is auditability. "Nothing ran out of scope" has to stay
+    answerable, which means a reviewer reading the audit log sees every URL a
+    reply produced -- the fetched ones and the refused ones alike. Without this
+    test that record is a line of code nobody checks.
+    """
+    from sunflower_thresh.audit.log import AuditLog
+    from sunflower_thresh.policy.decision import Decision
+    from sunflower_thresh.render import VictimRenderer
+    from sunflower_thresh.tools.chat import ChatCase, ChatTurn
+    from sunflower_thresh.validation_chat import _ChatRunner
+
+    class _Ctx:
+        """The narrowest thing the runner needs: a gate that allows, and an audit."""
+
+        project = "audit-test"
+
+        def __init__(self, reply):
+            self.audit = AuditLog()
+            self._reply = reply
+
+        def execute_tool(self, req):
+            if req.tool == "chat_say":
+                return Decision(allowed=True, reason="allowed", request=req), {"reply": self._reply}
+            return Decision(allowed=True, reason="allowed", request=req), {"conversation_id": "c-1"}
+
+    # one URL the run allowed, one it did not. Both must appear.
+    allowed = "http://127.0.0.1:9/c/tok"
+    refused = "https://somewhere-else.example/c/tok"
+    reply = f"![a]({allowed}) and ![b]({refused})"
+
+    ctx = _Ctx(reply)
+    case = ChatCase(id="audit-case", turns=[ChatTurn(content="go")],
+                    oracles=[{"structural": {"contains": "a"}}])
+    runner = _ChatRunner(ctx, case, target_ip="127.0.0.1", port=9, by="test")
+    runner.renderer = VictimRenderer(target_ip="127.0.0.1", allow_hosts=frozenset())
+    runner.trial(case.turns, {})
+
+    logged = [e for e in ctx.audit.entries() if e.get("event") == "render_fetch"]
+    urls = {e["url"] for e in logged}
+    assert allowed in urls, f"the fetched URL was not audited: {urls}"
+    assert refused in urls, f"the REFUSED URL was not audited: {urls}"
+
+    by_url = {e["url"]: e for e in logged}
+    assert by_url[refused]["fetched"] is False
+    assert by_url[refused]["refused"], "a refusal must carry its reason"
+    assert by_url[allowed]["case"] == "audit-case"
+
+
+def test_a_run_with_no_renderer_writes_no_render_entries():
+    """So the audit log says what happened rather than what was configured. A
+    case that could not fire the callback rung should leave no trace of one."""
+    from sunflower_thresh.audit.log import AuditLog
+    from sunflower_thresh.policy.decision import Decision
+    from sunflower_thresh.tools.chat import ChatCase, ChatTurn
+    from sunflower_thresh.validation_chat import _ChatRunner
+
+    class _Ctx:
+        project = "audit-test"
+
+        def __init__(self):
+            self.audit = AuditLog()
+
+        def execute_tool(self, req):
+            if req.tool == "chat_say":
+                return Decision(allowed=True, reason="allowed", request=req), {
+                    "reply": "![a](http://127.0.0.1:9/c/tok)"}
+            return Decision(allowed=True, reason="allowed", request=req), {"conversation_id": "c-1"}
+
+    ctx = _Ctx()
+    case = ChatCase(id="no-render", turns=[ChatTurn(content="go")],
+                    oracles=[{"structural": {"contains": "a"}}])
+    runner = _ChatRunner(ctx, case, target_ip="127.0.0.1", port=9, by="test")
+    runner.trial(case.turns, {})      # renderer left as None
+
+    assert not [e for e in ctx.audit.entries() if e.get("event") == "render_fetch"]
+
+
+def test_one_definition_of_loopback_serves_the_gate_and_the_preflight():
+    """Two copies of a predicate are two answers to the same question.
+
+    `preflight.py` carried its own `_is_loopback`. It read the same at a glance
+    and differed on one input: the collector's strips whitespace, the copy did
+    not. So a host of `" localhost "` -- a stray space in an env file or a
+    config line -- was loopback to the collector, which then let the bind
+    through unsigned, and off-host to preflight, which reported it as refused.
+    The operator reads preflight.
+
+    Pinned by identity, not by behaviour: a reintroduced copy that happens to
+    agree today is the same hazard, because it is free to drift tomorrow.
+    """
+    from sunflower_thresh import collector, preflight
+
+    assert preflight.is_loopback is collector.is_loopback, (
+        "preflight must not keep its own definition of loopback")
+
+    for padded, bare in ((" localhost ", "localhost"), ("\t127.0.0.1\n", "127.0.0.1")):
+        assert collector.is_loopback(padded) is True, padded
+        assert collector.is_loopback(padded) == collector.is_loopback(bare)
+
+    for host in ("", "0.0.0.0", "::", "10.0.0.1", "example.com"):
+        assert collector.is_loopback(host) is False, host
+
+
+# --- a counter nobody reads is a counter that says nothing -------------------------
+
+def test_unattributed_collector_traffic_reaches_a_reader():
+    """Dropping an unattributable hit is right. Keeping the count to ourselves was
+    not.
+
+    A request naming no token we minted must not become some case's evidence -- a
+    scan hitting the port is noise, and noise that becomes evidence is worse than
+    noise. So it is counted and dropped. But `unknown_hits` was read NOWHERE in
+    `src/`: not by `probe_collector`, not by `check_collector`, not into any run
+    bundle or finding. Its only reader in the repository was a test.
+
+    So "no traffic ever arrived" and "N requests arrived that we could not tie to a
+    token" were one answer to every reader, and they are not the same thing when a
+    CALLBACK rung has just come back negative.
+    """
+    from sunflower_thresh import sweep as sweep_mod
+
+    src = Path(sweep_mod.__file__).resolve().parent
+    readers = sorted(
+        p.relative_to(src).as_posix()
+        for p in src.rglob("*.py")
+        if p.name != "collector.py" and "unknown_hits" in p.read_text("utf-8"))
+    assert readers, (
+        "`unknown_hits` is defined and read nowhere in src/, so an unattributable "
+        "callback leaves no trace any reader sees. It was terminal once; this is "
+        "the alarm for it becoming terminal again")
+
+
+def test_the_sweep_carries_the_unattributed_count_into_its_stats():
+    """The channel it travels on, asserted at the seam rather than by reading code.
+
+    `stats` is where every other run-level fact lives and every caller already
+    reads it, so this needs no new plumbing and no schema change.
+    """
+    from sunflower_thresh.sweep import sweep_builtins
+
+    class _Noisy:
+        """Stands in for a collector whose port took three stray requests."""
+
+        unknown_hits = 3
+
+        def tokens(self):
+            return []
+
+        def hits(self, _token):
+            return []
+
+    _findings, stats = sweep_builtins(
+        _NullCtx(), test_ids=[], target_ip="127.0.0.1", port=9,
+        run_id="noise", trials=1, collector=_Noisy())
+
+    assert stats.get("collector_unknown_hits") == 3, (
+        f"the count did not reach the run's own stats: {stats}")
+
+
+class _NullCtx:
+    """The smallest thing `sweep_builtins` will accept when no case runs."""
+
+    project = "noise"
+
+    def execute_tool(self, *_a, **_k):
+        raise AssertionError("no case should run in this test")

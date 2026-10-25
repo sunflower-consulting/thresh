@@ -18,9 +18,9 @@ from datetime import date
 
 import pytest
 
-from sunflower_stem.policy.decision import DenyReason, TargetRef, ToolRequest
-from sunflower_stem.policy.engine import PolicyEngine
-from sunflower_stem.schemas.target import ActionClass
+from sunflower_thresh.policy.decision import DenyReason, TargetRef, ToolRequest
+from sunflower_thresh.policy.engine import PolicyEngine
+from sunflower_thresh.schemas.target import ActionClass, AuthorizationRecord
 
 LOOPBACK = TargetRef(ip="127.0.0.1")
 ELSEWHERE = TargetRef(ip="203.0.113.10")   # RFC 5737 documentation range
@@ -31,7 +31,11 @@ ROUTABLE = TargetRef(ip="8.8.8.8")
 
 def _req(**kw) -> ToolRequest:
     kw.setdefault("project", "lab")
-    kw.setdefault("tool", "chat_send")
+    # `chat_say` because that is what the tool is called. This said `chat_send`,
+    # which no tool in the package answers to, and it passed only because the
+    # fixture inventory permitted the same fiction -- so every test in this file
+    # exercised the gate with a name that could never have reached a target.
+    kw.setdefault("tool", "chat_say")
     kw.setdefault("action_class", ActionClass.ACTIVE)
     return ToolRequest(**kw)
 
@@ -94,14 +98,47 @@ def test_a_scope_whose_hash_does_not_match_cannot_authorise_anything(lab_invento
     assert d.deny_code is DenyReason.INVENTORY_UNVERIFIED
 
 
-def test_an_authorisation_that_has_expired_refuses(expired_inventory):
+def test_an_authorisation_that_expired_before_the_run_refuses(expired_inventory):
     """An engagement ends on a date. After it, the same scope file authorises
-    nothing, without anybody having to remember to delete it."""
+    nothing, without anybody having to remember to delete it.
+
+    The reason is asserted exactly, not as one of two. `load_inventory` sets
+    `verified` from `is_active()`, so an authorisation that had already lapsed
+    makes the inventory unverified and the gate stops there -- the AUTH_INACTIVE
+    branch further down is never reached by this path. An `in (...)` here passed
+    whether or not that branch existed, which is how it came to be deleted
+    without a single test noticing.
+    """
     eng = PolicyEngine()
     assert eng.load_inventory(expired_inventory) is False
     d = eng.authorize(_req(target=LOOPBACK))
     assert not d.allowed
-    assert d.deny_code in (DenyReason.INVENTORY_UNVERIFIED, DenyReason.AUTH_INACTIVE)
+    assert d.deny_code is DenyReason.INVENTORY_UNVERIFIED
+
+
+def test_an_authorisation_that_lapses_DURING_a_run_refuses(lab_inventory, monkeypatch):
+    """The case the AUTH_INACTIVE branch exists for, and the one nothing covered.
+
+    `verified` is computed once, when the inventory is loaded. A long run that
+    crosses the expiry therefore holds a cached `verified = True` while the
+    authorisation underneath it has lapsed, and only the per-call
+    `is_active()` check stops the next request. Delete that check and this run
+    keeps sending for as long as it lasts, against a scope that has expired.
+
+    Asserted by lapsing the record after a successful call rather than before
+    it, because loading it already-expired takes the unverified path above and
+    proves nothing about this branch.
+    """
+    eng = PolicyEngine()
+    assert eng.load_inventory(lab_inventory) is True
+    assert eng.authorize(_req(target=LOOPBACK)).allowed, "it must work before the lapse"
+
+    monkeypatch.setattr(AuthorizationRecord, "is_active", lambda self, on=None: False)
+
+    d = eng.authorize(_req(target=LOOPBACK))
+    assert not d.allowed
+    assert d.deny_code is DenyReason.AUTH_INACTIVE
+    assert "not active" in d.reason
 
 
 # --- the killswitch outranks everything ------------------------------------------
@@ -215,10 +252,53 @@ def test_a_refusal_is_written_to_the_audit_log(lab_inventory):
 
 
 @pytest.mark.parametrize("reason", list(DenyReason))
-def test_every_deny_reason_is_a_distinct_readable_string(reason):
-    """They reach a report, so they are part of the deliverable surface."""
+def test_every_deny_reason_is_a_readable_string(reason):
+    """They reach a report, so they are part of the deliverable surface.
+
+    Named for what the per-member body actually checks. It was
+    `..._is_a_distinct_readable_string`, and a test parametrized over one member
+    at a time cannot evaluate distinctness at all -- the set property it was named
+    for is in the test below.
+    """
     assert reason.value and reason.value == reason.value.lower()
     assert " " not in reason.value
+
+
+def test_no_two_deny_reasons_share_a_value():
+    """Two members with the same value are not an error in Python.
+
+    `enum` makes the second an ALIAS of the first, so `list(DenyReason)` never
+    shows the collision and neither does any test iterating it -- which is why the
+    test above could not have caught this however it was named. `__members__` is
+    the only view that shows aliases.
+
+    The collision matters because `deny_code` is the key everything counts by.
+    The sweep tallies denials by that string, so two distinct refusal paths
+    collapsed onto one member mis-attribute the tally, and a reason aliased onto
+    `RATE_LIMITED` would be retried by `sweep.TRANSIENT_DENIALS` even though it
+    does not clear on its own -- a run that spends its budget re-sending a case
+    the gate will refuse every time.
+
+    Measured before this existed: adding `RATE_LIMITED_SOFT = "rate_limited"`,
+    an exact duplicate, left the parametrized test at 11 passed rather than
+    rising to 12, because the alias is not a member.
+    """
+    aliases = {name: member.value for name, member in DenyReason.__members__.items()
+               if DenyReason.__members__[name] is not member or
+               name != member.name}
+    assert not aliases, (
+        f"these DenyReason names are ALIASES of another member, so they vanish "
+        f"from `list(DenyReason)` and from every count keyed on deny_code: "
+        f"{aliases}")
+
+    values = [m.value for m in DenyReason.__members__.values()]
+    assert len(values) == len(set(values)), (
+        f"two deny reasons share a value: "
+        f"{sorted(v for v in values if values.count(v) > 1)}")
+
+    assert len(DenyReason.__members__) == len(list(DenyReason)), (
+        "`__members__` and `list(DenyReason)` disagree, which is exactly what an "
+        "alias looks like")
 
 
 # --- a dropped field is an error, not a default ----------------------------------
@@ -235,10 +315,10 @@ def test_a_field_the_scope_model_does_not_know_is_rejected():
     """
     from pydantic import ValidationError
 
-    from sunflower_stem.schemas.target import AuthorizationRecord
+    from sunflower_thresh.schemas.target import AuthorizationRecord
 
     with pytest.raises(ValidationError, match="extra"):
-        ToolRequest(project="lab", tool="chat_send",
+        ToolRequest(project="lab", tool="chat_say",
                     action_class=ActionClass.ACTIVE, capability="out_of_band_callback")
 
     with pytest.raises(ValidationError, match="extra"):
@@ -256,5 +336,5 @@ def test_a_mistyped_budget_cannot_quietly_become_unlimited(lab_inventory):
     with pytest.raises(ValidationError, match="extra"):
         lab_inventory.model_copy(update={}).__class__(
             project="lab", allowed_cidrs=("127.0.0.1/32",),
-            allowed_tools=("chat_send",), max_messages=10,
+            allowed_tools=("chat_say",), max_messages=10,
             authorization=lab_inventory.authorization)

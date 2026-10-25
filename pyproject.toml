@@ -1,11 +1,11 @@
 [project]
-name = "sunflower-stem"
+name = "sunflower-thresh"
 version = "0.1.0.dev0"
 description = "Measure whether an attack on an LLM application actually worked, against a control, proved on a channel the target does not control."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
-license-files = ["LICENSE", "NOTICE"]
+license-files = ["LICENSE", "LICENSE-DATA", "NOTICE"]
 authors = [{ name = "Sunflower Consulting" }]
 keywords = ["llm", "security", "red-team", "prompt-injection", "evaluation"]
 classifiers = [
@@ -26,14 +26,21 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
+    # Test-only, and it buys the two checks that matter most: the measurement
+    # and control-mapping files a real run produces are validated against the
+    # REPORT RENDERER's own schemas, read from its repository rather than
+    # copied. Without it those tests skip, and a skipped contract test is
+    # indistinguishable from a passing one.
+    "jsonschema>=4.0",
+
 ]
 
 [project.scripts]
-stem = "sunflower_stem.cli:main"
+thresh = "sunflower_thresh.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/sunflower-consulting/stem"
-Source = "https://github.com/sunflower-consulting/stem"
+Homepage = "https://github.com/sunflower-consulting/thresh"
+Source = "https://github.com/sunflower-consulting/thresh"
 
 [build-system]
 requires = ["setuptools>=77"]
@@ -42,8 +49,22 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# The rubric library is DATA and `src/` had no non-Python file before it, so there
+# was no working precedent to copy and no MANIFEST.in. Without this a wheel install
+# has no rubrics while a source checkout has all twelve -- which is the worst
+# version of that split, because the tests would pass either way and only an
+# installed user would see the judge find nothing. The quickstart CI job installs a
+# built wheel on a clean machine, which is what makes this assertable rather than
+# assumed.
+[tool.setuptools.package-data]
+sunflower_thresh = ["rubrics/*.yaml", "almanac/*.yaml"]
+
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+# `src` for the package, `.` so `tests.paths` imports whatever pytest was launched
+# as. Without the second entry `python -m pytest` works and a bare `pytest` does
+# not, because only the former puts the working directory on sys.path -- so every
+# local run and every worktree check passed while CI failed on all four Pythons.
+pythonpath = ["src", "."]
 testpaths = ["tests"]
 
 [tool.ruff]
@@ -64,4 +85,4 @@ ignore = ["SIM103"]
 # branch structure or its shebang to satisfy a linter would make the two drift
 # for no behavioural gain, and a benchmark target that quietly stopped being the
 # same target is the one change here that cannot be noticed from a result.
-"src/sunflower_stem/lab/*" = ["SIM102", "EXE001"]
+"src/sunflower_thresh/lab/*" = ["SIM102", "EXE001"]

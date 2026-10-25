@@ -1,7 +1,7 @@
 # Method
 
 This document is the argument behind the tool.
-It is longer than a feature list because the disagreements between stem and the rest of this field are about epistemology rather than about features, and a feature list cannot carry an argument.
+It is longer than a feature list because the disagreements between thresh and the rest of this field are about epistemology rather than about features, and a feature list cannot carry an argument.
 
 Three claims, in the order they matter.
 
@@ -20,7 +20,7 @@ Reporting it as a finding is reporting the assistant's normal behaviour as a vul
 
 The fix is not a cleverer judge.
 It is a second arm.
-Every case in stem carries a benign twin: the same request, the same conversation shape, the same budget, with the adversarial element removed.
+Every case in thresh carries a benign twin: the same request, the same conversation shape, the same budget, with the adversarial element removed.
 The result is the difference between the two arms, and a case where both arms behave identically has measured nothing and says so.
 
 This is why `control_kind` appears on every row of output and is never defaulted.
@@ -46,7 +46,7 @@ Security testing is not evaluation. The question is not "how often does the mode
 
 Not all evidence is the same kind of thing, and collapsing it into one boolean throws away the only information a reader needs in order to decide whether to believe the finding.
 
-stem ranks it:
+thresh ranks it:
 
 | | Rung | What it means | What it needs |
 |---|---|---|---|
@@ -64,12 +64,22 @@ Corroboration is recorded separately: when three rungs fire, the strongest sets 
 
 ### The judge rung ships off
 
-The bottom rung is off by default in this version, and `stem doctor` says so.
+The bottom rung is off by default in this version, and `thresh doctor` says so.
 
 A model's opinion about a reply is not a falsification of anything.
 Worse, in the author's own rehearsal every scoring rubric fired too eagerly against a hardened assistant: a tool shipped in that state manufactures findings that a human reviewer then throws away, which costs more credibility than the findings were ever worth.
 Turning the rung on requires measuring agreement between the judge and a human, per rubric, and publishing the figure.
 That has not been done, so the rung is off and the reason is printed rather than buried.
+
+The gate is in the code rather than in this document.
+A rubric with no published agreement figure yields no rung, which the ladder already treats as unreachable, so a case that rests on one reports as `not probed` rather than being scored.
+That is deliberate and not merely tidy: the refusal rung prefers a judge whenever one exists, and `refusal` suppresses false positives in 206 of the corpus's 244 cases, so a judge accepted on configuration alone would replace a deterministic matcher with an unmeasured model across nearly the whole library while a constant elsewhere still said "off".
+A promise that lives in a constant is not a promise.
+
+What produces the figure is a separate exercise with a person in it, and `thresh calibrate` is deliberately not it.
+That command reports whether a rubric SEPARATES a hardened target from an unguarded one, which is what tells you which way to move its threshold.
+Agreement is how often the judge matched a human label.
+Letting the first stand in for the second would let the tool certify itself, so nothing in that path can write the figure the gate waits for.
 
 The four rungs above it need no model at all.
 
@@ -77,7 +87,7 @@ The four rungs above it need no model at all.
 
 A tool that takes a URL and begins attacking it has no answer to the question "was this authorised", because the component that decided what to attack is the component that wrote the attacks.
 
-stem separates them.
+thresh separates them.
 The model proposes; a policy gate decides, by reading a signed scope document.
 The gate reads nothing the request says about itself, which is the property that makes the separation real rather than decorative: anything that can construct a request can set any field on that request, so no field on it may be what unlocks it.
 
@@ -91,7 +101,7 @@ An expired authorisation stops working without anyone having to remember to dele
 
 Every refusal carries a machine-readable reason, because a gate whose refusals cannot be reviewed afterwards is not auditable, and "what did this tool try to do" is the first question anybody asks.
 
-## What stem does not do
+## What thresh does not do
 
 Stated plainly, because a tool that is vague about its limits is making a claim about all of them.
 
@@ -102,11 +112,11 @@ Severity is a judgement about a specific deployment, and the tool does not know 
 
 **It does not lead on breadth of attack catalogue.**
 Other tools in this space carry far more techniques, multi-turn attack generators and jailbreak corpora, and they are genuinely ahead on that axis.
-stem ships a small set of built-in cases chosen because each one reaches a different rung of the ladder.
+thresh ships a small set of built-in cases chosen because each one reaches a different rung of the ladder.
 
 **It does not lead on statistical machinery.**
 At least one open tool in this field corrects its confidence intervals by per-detector sensitivity and specificity measured against calibration sets, which is more sophisticated than anything here.
-stem's statistical claim is narrower and different in kind: that the comparison is against a control arm at all.
+thresh's statistical claim is narrower and different in kind: that the comparison is against a control arm at all.
 
 **It does not claim out-of-band verification is novel.**
 Other implementations do observe execution outside the chat channel, by correlating distributed traces or by diffing a filesystem.
@@ -118,7 +128,7 @@ Mapping a technical finding onto a legal obligation is a separate problem with a
 
 ## The bundled target
 
-stem ships the application it attacks: a deliberately vulnerable chat assistant, served on loopback, with a scripted brain that needs no model, no GPU and no network.
+thresh ships the application it attacks: a deliberately vulnerable chat assistant, served on loopback, with a scripted brain that needs no model, no GPU and no network.
 
 Two reasons, and the second is the important one.
 
@@ -126,7 +136,7 @@ The obvious reason is that the first run then needs nothing.
 No endpoint, no key, no configuration file.
 
 The real reason is that the target scores itself.
-It knows which of its own flaws were exercised, so a stem run can be checked against what the target believes happened rather than only against what stem reports.
+It knows which of its own flaws were exercised, so a thresh run can be checked against what the target believes happened rather than only against what thresh reports.
 A measurement tool whose correctness rests on reading its own output is not measuring anything, and the bundled target is the second opinion.
 
 It also has defence levels, which makes the comparison that nothing else in this field runs: the same cases against the same application with its guardrails on and off, reporting the difference.
@@ -140,7 +150,7 @@ Every run records what would change the numbers.
 
 A rate is a measurement of one target under one configuration at one attempt budget.
 Change the budget, the ladder, the judge or the models and it moves.
-Carrying that configuration into the output as a single hash is implemented in the private engine this was extracted from and is not ported yet; until it is, two stem runs are comparable only if you know by other means that nothing between them changed.
+Carrying that configuration into the output as a single hash is implemented in the private engine this was extracted from and is not ported yet; until it is, two thresh runs are comparable only if you know by other means that nothing between them changed.
 
 The redaction policy is versioned, and that part is here.
 Artefacts are addressed by their own hash, and redaction happens before hashing, because an immutable store cannot have redaction retrofitted.
