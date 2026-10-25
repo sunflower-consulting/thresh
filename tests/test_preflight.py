@@ -44,6 +44,7 @@ from sunflower_thresh.preflight import (
     unpredicted_denials,
 )
 from sunflower_thresh.schemas.target import AuthorizationRecord, TargetInventory
+from sunflower_thresh.tools.chat import BUILTIN_CHAT_CASES
 
 needs_corpus = pytest.mark.skipif(
     not (CORPUS / "cases").is_dir(),
@@ -892,3 +893,49 @@ def test_every_permitted_tool_name_has_an_implementation_behind_it():
     for outside in ("tool_search", "skill_detail", "chat_probe", "chat_open"):
         assert inv.tool_allowed(outside) is False, (
             f"{outside!r} is permitted without being in allowed_tools")
+
+
+# --- two zeros on the collector row ------------------------------------------------
+
+def test_an_unsigned_capability_is_not_nothing_to_gain():
+    """`_collector_cost` priced each co-requisite with the other held missing, so
+    each read as worthless.
+
+    Both selections hold every capability at its SIGNED value and vary only
+    `have_collector`. An out-of-band case needs the collector AND
+    `out_of_band_callback`, so with that switch off BOTH sides exclude those cases,
+    the difference is empty -- and the empty string was turned into "none, and no
+    case would gain one". That is a positive claim about the library, made from a
+    comparison that could not have found anything. An operator reads it as "the
+    collector buys us nothing here" and never learns the scope is what is stopping
+    it.
+    """
+    pf = _pf()                      # the default inventory does not sign it
+    assert not pf.inv.capability_enabled(CALLBACK_CAPABILITY), "the premise"
+    pf.runnable, pf.skipped = pf.select()
+    assert pf.reach is CollectorReach.UNCONFIGURED
+
+    row = pf.check_collector()
+    said = f"{row.detail} {row.hint}"
+    assert "no case would gain one" not in said, (
+        f"the row still claims nothing would be gained: {said!r}")
+    assert CALLBACK_CAPABILITY in said, "it has to name the switch that is off"
+    assert "not the same as nothing to gain" in said
+
+
+def test_a_library_with_nothing_to_gain_still_says_so_plainly():
+    """The other zero, and it has to keep its plain sentence. If the two rendered
+    alike in the other direction this would be noise on every run with no callback
+    case in the library, which is how a real warning gets ignored.
+    """
+    lib = {k: v for k, v in BUILTIN_CHAT_CASES.items() if k != "chat-markdown-exfil"}
+    inv = _inv(capabilities={"plant_content": True, "multi_turn_escalation": True,
+                             CALLBACK_CAPABILITY: True})
+    pf = _pf(inv=inv, cases=lib)
+    pf.runnable, pf.skipped = pf.select()
+
+    row = pf.check_collector()
+    said = f"{row.detail} {row.hint}"
+    assert "none, and no case would gain one" in said
+    assert CALLBACK_CAPABILITY not in said, (
+        "the capability is signed, so it is not what is stopping anything")

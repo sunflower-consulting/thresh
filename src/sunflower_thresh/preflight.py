@@ -155,6 +155,15 @@ UNPREDICTABLE: dict[DenyReason, str] = {
 }
 
 
+def _partial_ids(scoring: dict) -> set[str]:
+    """Which cases in a selection run on a SUBSET of their own oracles.
+
+    Module level because two pricing helpers compare the same thing, and a nested
+    copy in each is how the two drift into disagreeing about what partial means.
+    """
+    return {cid for cid, s in scoring.items() if getattr(s, "partial", False)}
+
+
 def unpredicted_denials() -> set[DenyReason]:
     """Refusals the gate can give that this module neither predicts nor excuses.
 
@@ -1059,9 +1068,7 @@ class EngagementPreflight:
         with_it, _ = self.select(have_collector=True)
         without, _ = self.select(have_collector=False)
         gained = sorted(set(with_it) - set(without))
-        def part(d):
-            return {cid for cid, s in d.items() if getattr(s, "partial", False)}
-        promoted = sorted(part(without) - part(with_it))
+        promoted = sorted(_partial_ids(without) - _partial_ids(with_it))
         bits = []
         if gained:
             bits.append(f"{len(gained)} case(s) only run with one: "
@@ -1069,7 +1076,52 @@ class EngagementPreflight:
         if promoted:
             bits.append(f"{len(promoted)} case(s) run on their FULL ladder only with "
                         f"one, and on a weaker rung without: {', '.join(promoted[:6])}")
-        return ". ".join(bits)
+        if bits:
+            return ". ".join(bits)
+        # Both selections above hold every capability at its SIGNED value and vary
+        # only `have_collector`. An out-of-band case needs the collector AND
+        # `out_of_band_callback`, so with that switch off BOTH sides exclude those
+        # cases, the difference is empty -- and the caller turned the empty string
+        # into "none, and no case would gain one", a positive claim about the
+        # library built from a measurement that could not have found anything. Each
+        # co-requisite was priced with the other held missing, so each read as
+        # worthless.
+        blocked = self._cost_if_capability_signed()
+        if blocked:
+            return (f"nothing while `{CALLBACK_CAPABILITY}` is unsigned, which is "
+                    f"not the same as nothing to gain: {blocked} if it were signed")
+        return ""
+
+    def _cost_if_capability_signed(self) -> str:
+        """What a collector would buy if the capability were signed too.
+
+        Asked only when the plain pricing came back empty, to tell "the library has
+        no case a collector helps" from "the scope does not authorise the callback,
+        so no case can show it". Measured by flipping the switch on a copy of the
+        inventory and re-selecting, the same way `cases_gained_by` does, rather than
+        from a table of which need maps to which capability.
+        """
+        enabled = getattr(self.inv, "capability_enabled", None)
+        if enabled is not None and bool(enabled(CALLBACK_CAPABILITY)):
+            return ""            # already signed, so the empty answer was the real one
+        if not hasattr(self.inv, "model_copy"):
+            return ""
+        caps = dict(getattr(self.inv, "capabilities", {}) or {})
+        caps[CALLBACK_CAPABILITY] = True
+        try:
+            signed = self.inv.model_copy(update={"capabilities": caps})
+        except Exception:  # noqa: BLE001 - an inventory that will not copy prices nothing
+            return ""
+        with_it, _ = self.select(inv=signed, have_collector=True)
+        without, _ = self.select(inv=signed, have_collector=False)
+        gained = len(set(with_it) - set(without))
+        promoted = len(_partial_ids(without) - _partial_ids(with_it))
+        bits = []
+        if gained:
+            bits.append(f"{gained} case(s) would run only with a collector")
+        if promoted:
+            bits.append(f"{promoted} case(s) would reach their full ladder")
+        return " and ".join(bits)
 
     # ----- reaching them -----
 
