@@ -507,8 +507,26 @@ def render(d: Diff) -> str:
             detail = f"{row.rate('before')} -> {row.rate('after')}"
             lines.append(f"      {row.case or row.title[:40]:42} {ts.muted(detail)}")
             if label == "narrowed":
+                # Counted and bounded, and the un-retested half named. This printed
+                # the first six reproducing variants with no total and no "+K more",
+                # and never printed `variants_missing` at all -- so in the bucket
+                # this module's own closing note calls the one that matters most, a
+                # variant re-tested and clean read exactly like a variant nobody
+                # measured. The two branches below both say which is which; this one
+                # said neither, and it is the row a client acts on.
+                still = row.variants_reproducing
                 lines.append("        " + ts.warn(
-                    f"still landing: {', '.join(row.variants_reproducing[:6])}"))
+                    f"still landing: {len(still)} of {len(row.variants_known)} "
+                    f"variant(s): {', '.join(still[:6])}"
+                    + (f" (+{len(still) - 6} more)" if len(still) > 6 else "")))
+                if row.variants_missing:
+                    lines.append("        " + ts.muted(
+                        f"and {len(row.variants_missing)} of "
+                        f"{len(row.variants_known)} variant(s) were not re-tested: "
+                        f"{', '.join(row.variants_missing[:4])}"
+                        + (f" (+{len(row.variants_missing) - 4} more)"
+                           if len(row.variants_missing) > 4 else "")
+                        + ". Those are unmeasured, not clean"))
             elif label == "closed":
                 lines.append("        " + ts.muted(
                     f"and all {len(row.variants_known)} variant(s) re-tested "
@@ -517,7 +535,9 @@ def render(d: Diff) -> str:
                 lines.append("        " + ts.muted(
                     f"{len(row.variants_missing)} of {len(row.variants_known)} "
                     f"variant(s) were not re-tested: "
-                    f"{', '.join(row.variants_missing[:4])}"))
+                    f"{', '.join(row.variants_missing[:4])}"
+                    + (f" (+{len(row.variants_missing) - 4} more)"
+                       if len(row.variants_missing) > 4 else "")))
         if len(bucket) > 12:
             lines.append(f"      {ts.muted(f'+{len(bucket) - 12} more')}")
         lines.append("")

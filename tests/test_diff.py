@@ -177,8 +177,58 @@ def test_a_fix_that_blocks_the_proved_case_while_a_variant_lands_is_not_closed(
     assert [r.case for r in d.narrowed] == ["INJ-D-0001"]
     assert d.narrowed[0].variants_reproducing == ("INJ-D-0002",)
     text = render(d)
-    assert "still landing: INJ-D-0002" in text
+    row = d.narrowed[0]
+    # The count as well as the name. This asserted the bare name, and the line it
+    # asserted carried no total and no "+K more" -- so the row this module exists
+    # for was the one row that did not say how much of the technique was measured.
+    assert (f"still landing: {len(row.variants_reproducing)} of "
+            f"{len(row.variants_known)} variant(s): INJ-D-0002") in text
     assert "it is not a fix" in text
+
+
+def test_a_narrowed_row_says_which_variants_went_unmeasured(tmp_path):
+    """The one bucket that did not say how much of the technique was measured.
+
+    `closed` prints "all N variant(s) re-tested without reproducing" and `fix
+    unverified` prints "N of M variant(s) were not re-tested". `narrowed` printed
+    the first six reproducing variants, with no total and no "+K more", and never
+    printed `variants_missing` at all -- so a variant re-tested and still landing
+    and a variant nobody measured read as the same silence, in the bucket this
+    module's own closing note calls the row a client acts on.
+    """
+    d = _diff(tmp_path,
+              [_finding("INJ-D-0001", "validated", 0.9)],
+              [_finding("INJ-D-0001", "rejected", 0.0),
+               _finding("INJ-D-0002", "validated", 0.8)])
+    row = d.narrowed[0]
+    assert row.variants_reproducing == ("INJ-D-0002",)
+    assert row.variants_missing == ("INJ-D-0003",), "the scenario needs both halves"
+
+    text = render(d)
+    assert "still landing: 1 of 2 variant(s): INJ-D-0002" in text
+    assert "1 of 2 variant(s) were not re-tested: INJ-D-0003" in text, (
+        "a narrowed row has to name the variants nobody measured, exactly as the "
+        "unverified branch does")
+    assert "unmeasured, not clean" in text
+
+
+def test_a_long_variant_list_says_how_many_it_did_not_print(tmp_path):
+    """An unmarked truncation reads as the whole list, which is the same defect one
+    layer down: six of twenty variants still landing, printed as six."""
+    import dataclasses
+
+    d = _diff(tmp_path, [_finding("INJ-D-0001", "validated", 0.9)],
+              [_finding("INJ-D-0001", "rejected", 0.0),
+               _finding("INJ-D-0002", "validated", 0.8)])
+    many = tuple(f"INJ-D-{n:04d}" for n in range(2, 22))
+    # The real row, with only the variant sets widened, so this exercises the
+    # render rather than a hand-built object that might not match one.
+    d.narrowed[:] = [dataclasses.replace(
+        d.narrowed[0], variants_known=many, variants_run=many,
+        variants_reproducing=many, variants_missing=())]
+    text = render(d)
+    assert "still landing: 20 of 20 variant(s)" in text
+    assert "+14 more" in text, "fourteen variants were printed as none"
 
 
 def test_a_case_closes_only_with_its_variants_retested_clean(tmp_path):
