@@ -523,6 +523,45 @@ def test_a_snapshot_with_no_revision_at_all_says_so():
     assert "records no revision" in fault
 
 
+@pytest.mark.parametrize("bad", ["working-tree", "unknown", "LOCAL", "none",
+                                 "HEAD", " uncommitted ", "not a commit"])
+def test_a_label_meaning_no_commit_is_not_cited_as_one(bad):
+    """Two shapes were checked and every other string was taken for a commit.
+
+    Empty and `*-dirty` were faults; `working-tree`, `unknown` and `LOCAL` -- which
+    is exactly what a generator writes when it has no commit to name -- came back
+    clean, and `cite_as` quoted them verbatim. The report then said "Obligations
+    resolved against almanac working-tree" in the same place and the same typeface
+    as a real sha, and `coverage` omitted the fault keys entirely because the fault
+    is signalled by their presence. The untraceable state rendered as the traceable
+    one, which is the single claim vendoring the catalogue exists to support.
+    """
+    doc = _mini(generated_from=bad)
+    rev, fault = provenance(doc)
+    assert rev == bad
+    assert fault, f"{bad!r} was accepted as a revision a checkout could resolve"
+    assert cite_as(doc) == "sha256:" + doc["body_sha256"][:16], (
+        "and it must be cited by digest instead")
+
+    cov = coverage(doc, [], attempted=set(), instruments=("x",))
+    assert cov["almanac_revision_claimed"] == bad
+    assert "cited by digest" in render(cov)
+
+
+@pytest.mark.parametrize("good", ["deadbeef", "2026.09", "v1.2.0",
+                                  "51d4259571cc7da387d8e2a8b7e8999c3f59a088",
+                                  "release/2026-09"])
+def test_a_revision_a_checkout_could_resolve_is_left_alone(good):
+    """The other half, and why this is a closed list of labels rather than a shape
+    test. almanac may record a tag or a branch, and a pattern tight enough to reject
+    `unknown` would reject those too -- turning a working citation into a fault,
+    which is the louder failure of the two.
+    """
+    doc = _mini(generated_from=good)
+    assert provenance(doc) == (good, "")
+    assert cite_as(doc) == good
+
+
 # --- against the real catalogue and corpus ---------------------------------------
 
 def test_the_catalogue_partitions_its_own_vocabulary(snap):

@@ -230,6 +230,19 @@ def cite_as(snapshot: dict) -> str:
     return "sha256:" + str(snapshot.get("body_sha256") or "")[:16]
 
 
+#: Strings that name the ABSENCE of a revision rather than a revision. Compared
+#: case-insensitively after stripping. Deliberately a closed list of the labels a
+#: generator writes when it has no commit to name, rather than a pattern for what a
+#: revision looks like: almanac may legitimately record a tag (`2026.09`, `v1.2.0`)
+#: or a branch, and a shape test tight enough to reject `unknown` would reject
+#: those too -- turning a working citation into a fault, which is the louder
+#: failure of the two.
+UNTRACEABLE_REVISIONS = frozenset({
+    "-", "dirty", "head", "local", "n/a", "na", "none", "null", "tbd",
+    "uncommitted", "unknown", "unversioned", "working-tree", "workingtree",
+})
+
+
 def provenance(snapshot: dict) -> tuple[str, str]:
     """(revision, what is wrong with it). The second is "" when nothing is.
 
@@ -247,6 +260,22 @@ def provenance(snapshot: dict) -> tuple[str, str]:
         return rev, ("built from an edited working tree, so it cannot be regenerated "
                      "from any commit. A report citing it cannot be rebuilt from its "
                      "own bundle, which is the only reason to vendor at all")
+    # Two shapes were checked and every other string was taken for a commit. So a
+    # generator writing `working-tree`, `unknown` or `LOCAL` -- which is what one
+    # writes when there is no commit to name -- produced a snapshot that `cite_as`
+    # quoted verbatim, and the report said "Obligations resolved against almanac
+    # working-tree" in the same place and the same typeface as a real sha. The
+    # untraceable state rendered as the traceable one, which is the single claim
+    # vendoring exists to support.
+    probe = rev.strip().lower()
+    if probe in UNTRACEABLE_REVISIONS:
+        return rev, (f"{rev!r} names the ABSENCE of a revision rather than one, so "
+                     f"the snapshot cannot be regenerated and a report citing it "
+                     f"cannot be rebuilt from its own bundle")
+    if any(c.isspace() for c in rev):
+        return rev, (f"{rev!r} is not a revision any checkout could resolve: a git "
+                     f"object name holds no whitespace. A report cannot cite it as "
+                     f"the dataset it resolved against")
     return rev, ""
 
 
