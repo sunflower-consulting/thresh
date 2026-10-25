@@ -506,4 +506,16 @@ def sweep_builtins(
     stats["deny_reasons"] = deny_reasons
     # Truncated, so `len(denied_ids)` is not the count -- `stats["denied"]` is.
     stats["denied_ids"] = denied_ids[:20]
+    # Requests that reached the collector naming no token we minted. Dropping them
+    # is right -- recording an unattributable hit against some arbitrary case would
+    # manufacture a callback nobody planted -- but the counter was terminal: it was
+    # read nowhere in `src/`, so "no traffic ever arrived" and "N requests arrived
+    # that we could not tie to a token" were the same answer to every reader. They
+    # are not the same thing when a CALLBACK rung came back negative.
+    if collector is not None:
+        # `getattr` with a default rather than a try: a test double standing in for
+        # the collector need not grow the property, and a stat must never be the
+        # thing that fails a run.
+        stats["collector_unknown_hits"] = int(
+            getattr(collector, "unknown_hits", 0) or 0)
     return findings, stats

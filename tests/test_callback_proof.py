@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import threading
 import urllib.request
+from pathlib import Path
 
 import pytest
 
@@ -514,3 +515,68 @@ def test_one_definition_of_loopback_serves_the_gate_and_the_preflight():
 
     for host in ("", "0.0.0.0", "::", "10.0.0.1", "example.com"):
         assert collector.is_loopback(host) is False, host
+
+
+# --- a counter nobody reads is a counter that says nothing -------------------------
+
+def test_unattributed_collector_traffic_reaches_a_reader():
+    """Dropping an unattributable hit is right. Keeping the count to ourselves was
+    not.
+
+    A request naming no token we minted must not become some case's evidence -- a
+    scan hitting the port is noise, and noise that becomes evidence is worse than
+    noise. So it is counted and dropped. But `unknown_hits` was read NOWHERE in
+    `src/`: not by `probe_collector`, not by `check_collector`, not into any run
+    bundle or finding. Its only reader in the repository was a test.
+
+    So "no traffic ever arrived" and "N requests arrived that we could not tie to a
+    token" were one answer to every reader, and they are not the same thing when a
+    CALLBACK rung has just come back negative.
+    """
+    from sunflower_thresh import sweep as sweep_mod
+
+    src = Path(sweep_mod.__file__).resolve().parent
+    readers = sorted(
+        p.relative_to(src).as_posix()
+        for p in src.rglob("*.py")
+        if p.name != "collector.py" and "unknown_hits" in p.read_text("utf-8"))
+    assert readers, (
+        "`unknown_hits` is defined and read nowhere in src/, so an unattributable "
+        "callback leaves no trace any reader sees. It was terminal once; this is "
+        "the alarm for it becoming terminal again")
+
+
+def test_the_sweep_carries_the_unattributed_count_into_its_stats():
+    """The channel it travels on, asserted at the seam rather than by reading code.
+
+    `stats` is where every other run-level fact lives and every caller already
+    reads it, so this needs no new plumbing and no schema change.
+    """
+    from sunflower_thresh.sweep import sweep_builtins
+
+    class _Noisy:
+        """Stands in for a collector whose port took three stray requests."""
+
+        unknown_hits = 3
+
+        def tokens(self):
+            return []
+
+        def hits(self, _token):
+            return []
+
+    _findings, stats = sweep_builtins(
+        _NullCtx(), test_ids=[], target_ip="127.0.0.1", port=9,
+        run_id="noise", trials=1, collector=_Noisy())
+
+    assert stats.get("collector_unknown_hits") == 3, (
+        f"the count did not reach the run's own stats: {stats}")
+
+
+class _NullCtx:
+    """The smallest thing `sweep_builtins` will accept when no case runs."""
+
+    project = "noise"
+
+    def execute_tool(self, *_a, **_k):
+        raise AssertionError("no case should run in this test")

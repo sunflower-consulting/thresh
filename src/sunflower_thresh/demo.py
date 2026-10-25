@@ -237,6 +237,14 @@ def _print_table(findings, stats, say) -> None:
         f"{stats['reproduced']} unconfirmed, {stats['untested']} untested, "
         f"{stats['unreachable']} not probed, {stats['denied']} refused by the gate, "
         f"{stats['errors']} errored.  {stats['seconds']}s")
+    # Only when there were any, so the ordinary run does not carry a zero nobody
+    # needs. A negative CALLBACK rung means something different when traffic did
+    # arrive at the port and could not be tied to a token we minted.
+    noise = int(stats.get("collector_unknown_hits") or 0)
+    if noise:
+        say(f"{noise} request(s) reached the collector naming no token we minted: "
+            f"counted and dropped, never attributed to a case. If a callback rung "
+            f"came back negative, this is the number to read beside it.")
     say("")
     say("Read the two hit columns together, never the first alone.")
     say("A case whose control arm fired as often as the attack is REJECTED: the")
